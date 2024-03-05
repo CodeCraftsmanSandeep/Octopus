@@ -13,9 +13,13 @@ ER diagram is a graphical way of expressing the logical structure of a database.
 
 ## ER model overview :
 
-## Entities and its attributes :
+## Entity sets and their attributes :
+An entity is basically a distinguishable object. An entity set is a set of entities of the same type that share the same attributes (properties). <br/>
+A database is a collection of entity sets, which are related by relationships. <br/>
 
-## Relationships and its attributes :
+
+
+## Relationship sets and their attributes :
 
 ## ER diagram :
 
