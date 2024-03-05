@@ -4,7 +4,7 @@ Welcome to Octopus(🐙) Cloud Repository! <br/>
 <!-- <img src = 'happy-octopus.png' > <br/> -->
 This repository serves as the central hub for our ongoing efforts to design and develop a cloud-based application platform here after called as 🐙, inspired by the collaborative features of GitHub. <br/>
 
-<iframe width="560" height="315" src="video.mp4" frameborder="0" allowfullscreen></iframe>
+<iframe width="560" height="315" src="video.mp4" frameborder="0" ></iframe>
 
 
 🐙 <br/>
