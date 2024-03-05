@@ -3,7 +3,7 @@
 ## Overview
 
 1) [Entity sets and their attributes](#Entity-sets-and-their-attributes)
-2) [Relationship sets and their attirbutes](#Relation-sets-and-their-attributes)
+2) [Relationship sets and their attirbutes](#Relationship-sets-and-their-attributes)
 3) [ER diagram](#ER-diagram)
 
 ## Introduction
