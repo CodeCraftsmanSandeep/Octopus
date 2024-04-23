@@ -1,5 +1,18 @@
+-- view for all commits to a branch 
+-- -- upload_file()	  
+-- -- branch table	  
+-- -- create_branch() function
+-- -- merge_branches() function 
+-- -- add_commit() 
+-- -- fork()
+-- -- edit file()
+-- -- move file()
+-- -- delete file()
+-- -- delete repo()
+-- -- delete account()
+-- request_access()
+
 DROP EXTENSION IF EXISTS pgcrypto;
-drop table if exists sub_repository CASCADE;
 DROP TABLE IF EXISTS commit CASCADE;
 DROP TABLE IF EXISTS tag CASCADE;
 DROP TABLE IF EXISTS file CASCADE;
@@ -8,104 +21,71 @@ DROP TABLE IF EXISTS collaborate CASCADE;
 DROP TABLE IF EXISTS access CASCADE;
 DROP TABLE IF EXISTS fork CASCADE;
 
-
 DROP TABLE IF EXISTS developer CASCADE;
 DROP TABLE IF EXISTS repository CASCADE;
-DROP TABLE IF EXISTS copy_repository CASCADE;
-DROP TABLE IF EXISTS copy_file CASCADE;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- copy_repository table
-CREATE TABLE copy_repository(
-	copy_repository_id SERIAL PRIMARY KEY,
-	last_update timestamp, 					/* copied last_update */
-	size INT DEFAULT 0 CHECK(size >= 0) 	/* copied size */
-);
+-----------------------developer table------------------------------------
+CREATE TABLE developer(											  		--	   
+	developer_id SERIAL PRIMARY KEY,								    --
+	user_name VARCHAR(100) UNIQUE NOT NULL,								--
+	name VARCHAR(100) NOT NULL,											-- 
+	email VARCHAR(100) UNIQUE NOT NULL,									-- ||||||||||||||||||||||||||||||| 
+																		-- |||||   DEVELOPER TABLE	 |||||
+	encrypted_password VARCHAR(100) NOT NULL,							-- |||||||||||||||||||||||||||||||	 
+	num_repos INT DEFAULT 0 CHECK(num_repos >= 0),						--	 
+	storage_used INT DEFAULT 0 CHECK(storage_used >= 0), 				--	 
+	total_commits INT DEFAULT 0 CHECK(total_commits >= 0)				--
+);																		--
+--------------------------------------------------------------------------
 
--- copy_file table
-CREATE TABLE copy_file(
-	copy_file_id SERIAL PRIMARY KEY,
+
+-----------------------repository table------------------------------------
+CREATE TABLE repository(												 --
+	repository_id INT PRIMARY KEY,										 --
+	repository_name VARCHAR(100) NOT NULL,								 --
+	created_date_time timestamp,										 --
+	owner_id INT NOT NULL,												 --
+	is_public BOOLEAN DEFAULT true,										 --
+	root_id INT,						/* root of the tree   */		 --
+	parent_id INT,						/* parent of the repo */		 --
+	creator_id INT NOT NULL,		    /* worker who created */		 --
+																		 --
+	FOREIGN KEY (owner_id) 												 --
+	REFERENCES developer(developer_id) ON DELETE CASCADE,				 --
+	FOREIGN KEY (creator_id) 										     --
+	REFERENCES developer(developer_id) ON DELETE CASCADE,				 --
+	FOREIGN KEY (root_id)												 --
+	REFERENCES repository(repository_id),								 --
+	FOREIGN KEY (parent_id)												 --
+	REFERENCES repository(repository_id)								 --
+);																		 --
+---------------------------------------------------------------------------
+
+-- 3) file table
+CREATE TABLE file(
+	file_id	SERIAL PRIMARY KEY,
 	file_name VARCHAR(50) NOT NULL,
+	file_type VARCHAR(10),
 	size INT DEFAULT 0,
 	content text,
-	parent_copy_id INT NOT NULL,
-	last_update timestamp,
-	
-	FOREIGN KEY (parent_copy_id) 
-	REFERENCES copy_repository(copy_repository_id) ON DELETE CASCADE
-);
-
--- 1) Developer table
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE TABLE developer(
-	developer_id SERIAL PRIMARY KEY,
-	user_name VARCHAR(100) UNIQUE NOT NULL,
-	name VARCHAR(100) NOT NULL,
-	email VARCHAR(100) UNIQUE NOT NULL,
-	encrypted_password VARCHAR(100) NOT NULL,
-	num_repos INT DEFAULT 0 CHECK(num_repos >= 0),
-	storage_used INT DEFAULT 0 CHECK(storage_used >= 0), 
-	total_commits INT DEFAULT 0 CHECK(total_commits >= 0)
-);
-
-
--- 2) repository table
-CREATE TABLE repository(
-	repository_id SERIAL PRIMARY KEY,
-	repository_name VARCHAR(100) NOT NULL,
-	size INT DEFAULT 0 CHECK(size >= 0),
+	parent_repository_id INT NOT NULL,
 	created_date_time timestamp,
 	last_update timestamp,
-	owner_id INT NOT NULL,
-	is_public BOOLEAN DEFAULT true,
-	num_workers INT DEFAULT 1 CHECK(num_workers >= 1),
-	FOREIGN KEY (owner_id) 
-	REFERENCES developer(developer_id) 
-	ON DELETE CASCADE
-);
-
--- 3) sub_repository table
-CREATE TABLE sub_repository(
-	parent_repo_id INT NOT NULL,
-	child_repo_id INT PRIMARY KEY,
 	
-	FOREIGN KEY(parent_repo_id) 
-	REFERENCES repository(repository_id) ON DELETE CASCADE,
-	FOREIGN KEY(child_repo_id) 
+	FOREIGN KEY(parent_repository_id) 
 	REFERENCES repository(repository_id) ON DELETE CASCADE
 );
 
+/* creating datatype for different access */
+DROP TYPE IF EXISTS access_flag CASCADE;
+CREATE TYPE access_flag AS ENUM ('collaborator', 'viewer');
 
--- 4) collaborate table
-CREATE TABLE collaborate(
-	repository_id INT,
-	developer_id INT,
-	
-	PRIMARY KEY (repository_id, developer_id),
-	FOREIGN KEY (repository_id) 
-	REFERENCES repository(repository_id) ON DELETE CASCADE,
-	FOREIGN KEY (developer_id) 
-	REFERENCES developer(developer_id) ON DELETE CASCADE
-);
-
--- 5) comment table
-CREATE TABLE comment(
-	repository_id INT,
-	developer_id INT,
-	comment_id SERIAL, 
-	message	VARCHAR(100),
-	comment_date_time timestamp,
-	
-	PRIMARY KEY(repository_id, developer_id, comment_id),
-	FOREIGN KEY (repository_id) 
-	REFERENCES repository(repository_id) ON DELETE CASCADE,
-	FOREIGN KEY (developer_id) 
-	REFERENCES developer(developer_id) ON DELETE CASCADE
-);
-
--- 6) access table
+-- 4) access table
 CREATE TABLE access(
 	repository_id INT,
 	developer_id INT,
+	access_type access_flag,
 	
 	PRIMARY KEY(repository_id, developer_id),
 	FOREIGN KEY (repository_id) 
@@ -114,53 +94,113 @@ CREATE TABLE access(
 	REFERENCES developer(developer_id) ON DELETE CASCADE
 );
 
--- 7) file table
-CREATE TABLE file(
-	file_id	SERIAL PRIMARY KEY,
+-- commit area includes the following:
+-- 		1) commit_repository_table
+--		2) commit_file_table
+-- commit_repository_table
+-- who can commit?
+-- a worker can commit
+-- 			1) a owner is a worker
+--			2) a collabarator is a worker
+DROP TABLE IF EXISTS commit_repository CASCADE;
+CREATE TABLE commit_repository(
+	repository_id INT PRIMARY KEY,
+	repository_name VARCHAR(100) NOT NULL,
+	created_date_time timestamp,
+	owner_id INT NOT NULL,
+	is_public BOOLEAN DEFAULT true,
+	parent_id INT,
+	root_id INT,
+	
+	FOREIGN KEY (owner_id) 
+	REFERENCES developer(developer_id) 
+	ON DELETE CASCADE
+);
+
+-- commit_file_table
+DROP TABLE IF EXISTS commit_file_table CASCADE;
+CREATE TABLE commit_file_table(
+	file_id SERIAL PRIMARY KEY,
 	file_name VARCHAR(50) NOT NULL,
 	file_type VARCHAR(10),
 	size INT DEFAULT 0,
 	content text,
 	parent_repository_id INT NOT NULL,
+	created_date_time timestamp,
 	last_update timestamp,
 	
-	FOREIGN KEY(parent_repository_id) 
-	REFERENCES repository(repository_id) ON DELETE CASCADE
+	FOREIGN KEY (parent_repository_id) 
+	REFERENCES commit_repository(repository_id) ON DELETE CASCADE
 );
 
--- 8) commit table
+-- branch is a weak entity
+-- branch does not exist if repository for which developer is direct parent does not exists
+-- there could be multiple branches with same repository and developer_id
+DROP TABLE IF EXISTS branch CASCADE;
+CREATE TABLE branch(
+	branch_id INT PRIMARY KEY,
+	branch_name VARCHAR NOT NULL,
+	repository_id INT NOT NULL,							/* repository id */
+	creator_id INT,										/* developer id  */
+	
+	FOREIGN KEY (repository_id) 
+	REFERENCES repository(repository_id) ON DELETE CASCADE,
+	FOREIGN KEY (creator_id) 
+	REFERENCES developer(developer_id) ON DELETE CASCADE
+);
+
+-- commit table
+-- a commit is uniquely identified by 
+--			branch
+--			developer
+--			repository
+--			time (at different times same developer can commit to same branch in same repository)
 CREATE TABLE commit(
-	commit_id SERIAL,
-	repository_id INT,
-	developer_id INT,
+	commit_id INT PRIMARY KEY,
+	repository_id INT,					/* repository where commit took place 					*/
+	developer_id INT,					/* developer who committed								*/
+	commit_root_node INT NOT NULL, 		/* this points to commit area                         	*/
+	branch_id INT NOT NULL,				/* this points to branch to which a commit belongs to 	*/
 	message	VARCHAR(100),
-	data_snap_shot INT NOT NULL,
 	commit_date_time timestamp,
 	
-	PRIMARY KEY(commit_id),
 	FOREIGN KEY (repository_id) 
 	REFERENCES repository(repository_id) ON DELETE CASCADE,
 	FOREIGN KEY (developer_id) 
 	REFERENCES developer(developer_id) ON DELETE CASCADE,
-	FOREIGN KEY (data_snap_shot)
-	REFERENCES copy_repository(copy_repository_id)
+	FOREIGN KEY (commit_root_node)
+	REFERENCES commit_repository(repository_id) ON DELETE CASCADE,
+	FOREIGN KEY (branch_id)
+	REFERENCES branch (branch_id)
 );
 
--- 9) tag table
-CREATE TABLE tag(
-	repository_id INT,
-	developer_id INT,
-	tag_id INT,
-	commit_id INT,
-	tag_name VARCHAR(50) NOT NULL,
-	tag_date_time timestamp,
+-----------------------------------------* END OF CREATION OF TABLES *------------------------------------------------------
+
+-----------------------------------------* 	  FUNCTION: login_user   *------------------------------------------
+-- The function login_user 
+-- 					returns developer_id
+-- 					returns -1
+CREATE OR REPLACE FUNCTION login_user(user_name VARCHAR(100), password VARCHAR)
+RETURNS INT
+AS $$
+BEGIN
+	IF NOT EXISTS 
+	 	(SELECT developer.user_name 
+		FROM developer 
+		WHERE developer.user_name = login_user.user_name and 
+			  developer.encrypted_password = (crypt(login_user.password, '$2024$DBMS$fixedsalt')))
+	THEN
+		RETURN -1;
+	END IF;
 	
-	PRIMARY KEY(repository_id, developer_id, tag_id),
-	FOREIGN KEY (repository_id) REFERENCES repository(repository_id),
-	FOREIGN KEY (developer_id) REFERENCES developer(developer_id),
-	FOREIGN KEY (commit_id) REFERENCES commit(commit_id)
-);
+	RETURN  (SELECT developer.developer_id FROM developer WHERE developer.user_name = login_user.user_name and developer.encrypted_password = (crypt(login_user.password, '$2024$DBMS$fixedsalt')));
+END;
+$$ LANGUAGE plpgsql;
 
+-- The crypt function is a one-way hashing function, meaning it transforms data into a fixed-length string 
+-- (hash) that cannot be reversed to recover the original data.
+
+-----------------------------------------* 	  FUNCTION: check_user   *------------------------------------------
 -- The function check_user (lookup)
 -- 					returns true if the input user_name is present (that is the provided user_name is valid)
 -- 					returns false otherwise 
@@ -173,7 +213,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-
+-----------------------------------------* 	  FUNCTION: create_user   *------------------------------------------
 -- function create_user
 -- 					creates user if email, username are not already found in developer table and returns true if valid,
 -- 					else return false
@@ -181,7 +221,11 @@ DROP FUNCTION IF EXISTS create_user;
 CREATE OR REPLACE FUNCTION create_user(user_name VARCHAR(100), name VARCHAR(100), email VARCHAR(100), pass VARCHAR(100))
 RETURNS BOOLEAN
 AS $$
+DECLARE 
+developer_id INT;
+repo_name VARCHAR;
 BEGIN
+	/* checking for uniqueness of user_name and email */
 	if (create_user.user_name in (select developer.user_name from developer)) then
 		RAISE NOTICE '% user_name already exists!!', create_user.user_name;
 		if (create_user.email in (select developer.email from developer)) then
@@ -189,84 +233,206 @@ BEGIN
 		end if;
 		return false;
 	end if;
+	
+	/* checking for uniqueness of email */
 	if (create_user.email in (select developer.email from developer)) then
 		RAISE NOTICE '% is already linked to an account!!', create_user.email;
 		return false;
 	end if;
+	
+	/* Inserting into developer table */
+	-- 	password need to be checked
 	INSERT INTO developer(user_name, encrypted_password, name, email) 
-	VALUES (create_user.user_name, (crypt(create_user.pass, gen_salt('bf'))) , create_user.name, create_user.email);
+	VALUES (create_user.user_name, (crypt(create_user.pass, '$2024$DBMS$fixedsalt')) , create_user.name, create_user.email);
+	
+	developer_id := (SELECT developer.developer_id
+			 		 FROM developer
+		     		 WHERE developer.user_name = create_user.user_name);
+	/* Every developer has one repository created by octopus */
+	/* COALESCE() function returns first non-null expression in its list of arguments */
+	repo_name := '@' || user_name;
+	INSERT INTO repository(repository_id, repository_name, created_date_time, owner_id, creator_id)
+	VALUES ( (SELECT COALESCE(MAX(repository.repository_id), 0) FROM repository) + 1,
+			 repo_name,
+			 localtimestamp,
+			 developer_id,
+			 developer_id
+	);
+	
+	/* Interactive message */
 	RAISE NOTICE 'Welcome to cloud-repository octopus %!!', create_user.name;
 	return true;
 END;
 $$ LANGUAGE plpgsql;
+-----------------------------------------*  VIEW : immediate_repos *--------------------------------------------
+-- CREATE OR REPLACE VIEW immediate_repos AS
+-- SELECT 	
+-- FROM 
+-- WHERE 
 
--- function create_repo
-DROP FUNCTION IF EXISTS create_repo;
-CREATE OR REPLACE FUNCTION create_repo(repository_name VARCHAR(100), user_name VARCHAR(100))
-RETURNS BOOLEAN
-AS $$
+------------------------------ helper functions ------------------------------
+CREATE OR REPLACE FUNCTION is_worker(developer_id INT, repository_id INT)
+RETURNS BOOLEAN AS $$
 BEGIN
-	/* for a user, repo_name must be unique */
-	if (create_repo.repository_name in  (select repository.repository_name
-										from repository, developer
-										where repository.owner_id = developer.developer_id and developer.user_name = create_repo.user_name)) then
-		/* repository is already present in repos of owner*/
-		RAISE NOTICE '% already exists in % repostires', create_repo.repository_name, create_repo.user_name;
-		return false;
-	end if;
+	IF is_worker.developer_id = (SELECT owner_id
+								 FROM repository 
+								 WHERE repository.repository_id = is_worker.repository_id)
+	THEN 
+		/* is owner */
+		RETURN true;
+	END IF;
 	
-	if(check_user(user_name) = false) then
-		RAISE NOTICE '% user_name is invalid!!', create_repo.user_name;
-		RETURN false;
-	end if;
+	IF is_worker.developer_id in (SELECT access.developer_id
+								  FROM access
+								  WHERE access.repository_id = is_worker.repository_id AND
+								 		access.access_type = CAST('collaborator' AS access_flag))
+    THEN 
+		/* is collaborator */
+		RETURN true;
+	END IF;
+	
+	RETURN false;
+END;
+$$ LANGUAGE plpgsql;
+
+-----------------------------------------* 	  FUNCTION: create_repo   *------------------------------------------
+-- function create_repo
+-- 			create_repo checks all conditions (mentioned in below function) and throws error if any condition fails
+-- 			if all conditions are met, then a new repository and a new link between new repository and parent repository is created
+DROP FUNCTION IF EXISTS create_repo;
+CREATE OR REPLACE FUNCTION create_repo(repository_name VARCHAR(100), parent_repository_id INT, user_name VARCHAR(100))
+RETURNS TABLE (is_created BOOLEAN, msg VARCHAR)
+AS $$
+DECLARE 
+dev_id INT;
+owner_id INT;
+parent_repo_name VARCHAR;
+child_repository_id INT;
+root_id INT;
+BEGIN
+	/* repository_name should only contain alphabets, numbers, _ */
+    IF repository_name ~ '^[a-zA-Z0-9_]+$' THEN
+    ELSE
+		RETURN QUERY SELECT false AS is_created, CAST(repository_name || ' contains characters other than alphabets, numbers, _' AS VARCHAR) AS msg;
+		RETURN;
+    END IF;
+
+	/* invalid user_name */
+	IF(check_user(user_name) = false)
+	THEN
+		RETURN QUERY SELECT false AS is_created, CAST(create_repo.user_name || ' user_name is invalid!!'  AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
+	
+	dev_id := (select developer.developer_id 
+			   from developer 
+			   where developer.user_name = create_repo.user_name);
+			   
+	/* checking validity of parent_repository_id */
+	if parent_repository_id not in ( select repository.repository_id
+									 from repository)
+	THEN
+		RETURN QUERY SELECT false AS is_created, CAST(parent_repository_id || ' is not valid repository_id'  AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
+	
+	SELECT repository.repository_name, repository.owner_id
+	INTO parent_repo_name, owner_id
+	FROM repository
+	WHERE repository.repository_id = parent_repository_id;
+			
+	/* checking whether user(dev_id, user_name) is not worker */
+	IF is_worker(dev_id, parent_repository_id) = false
+	THEN
+		RETURN QUERY SELECT false AS is_created, CAST(user_name || ' is not worker of ' || parent_repo_name || '(id = ' || parent_repository_id || ')' AS VARCHAR) AS msg;
+		RETURN;	
+	END IF;
+	
+	/* repo_name should be different from all its sibling names */
+	IF (create_repo.repository_name IN  (SELECT repository.repository_name
+										 FROM repository
+										 WHERE repository.owner_id = dev_id and 
+										      repository.parent_id = parent_repository_id)) 
+	THEN
+		RETURN QUERY SELECT false AS is_created, CAST(repository_name || ' is already a child of ' || parent_repo_name || '(id = ' || parent_repository_id || '), try with another name!!'  AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
 	
 	/* Updating number of repositires of owner */
 	UPDATE developer
 	SET num_repos = num_repos + 1
 	WHERE developer.user_name = create_repo.user_name;
 	
-	/* creating a new repository */
-	INSERT INTO repository(repository_name, created_date_time, last_update, owner_id)
-	VALUES ( create_repo.repository_name,
-			 localtimestamp,
-			 localtimestamp,
-			 (select developer.developer_id
-			 from developer
-		     where developer.user_name = create_repo.user_name)
-	);
+	/* Getting unique child repositroy_id */
+	child_repository_id = (select max(repository.repository_id) from repository ) + 1;
 	
-	RAISE NOTICE '% created!!', create_repo.repository_name;
-	return true;
+	IF (parent_repo_name ~ '^@.+$')
+	THEN
+		/* root points to itself       */
+		root_id = child_repository_id;
+	ELSE
+		/* descendent pointing to root */
+		root_id = (SELECT repository.root_id
+				   FROM repository
+				   WHERE repository.repository_id = parent_repository_id);
+	END IF;
+	
+	/* creating a new repository */
+	INSERT INTO repository(repository_id, repository_name, created_date_time, owner_id, creator_id, parent_id, root_id)
+	VALUES ( child_repository_id,
+			 create_repo.repository_name,
+			 localtimestamp,
+			 owner_id,
+			 dev_id,
+			 parent_repository_id,
+			 root_id);
+	
+	RETURN QUERY SELECT true AS is_created, CAST(repository_name || ' is created' AS VARCHAR) AS msg;
+	RETURN;
 END;
 $$ LANGUAGE plpgsql;
 
--- create file function
+-----------------------------------------* 	  FUNCTION: create_file   *------------------------------------------
+-- create_file() function
+-- 		create_file() function will check first whether passed arguments are valid (or) not. If they are not valid it returns false
+-- 		if the parameters are valid, a new file and new link between file and parent repository is created
+-- YOU NEED TO CHECK PERMISSIONS ??????????????
 DROP FUNCTION IF EXISTS create_file;
-CREATE OR REPLACE FUNCTION 	create_file(file_name VARCHAR(50), file_type VARCHAR(10), content text, parent_repository_name VARCHAR(100), owner_user_name VARCHAR(100))
+CREATE OR REPLACE FUNCTION 	create_file(file_name VARCHAR(50), file_type VARCHAR(10), content text, parent_repository_id INT, developer_user_name VARCHAR(100))
 RETURNS BOOLEAN
 AS $$
 DECLARE 
-repo_id INT;
 own_id INT;
 file_size INT;
 create_time timestamp;
+parent_repository_name VARCHAR;
 BEGIN
-	IF (owner_user_name not in (SELECT user_name FROM developer)) THEN
-		RAISE NOTICE '% is invalid user_name', owner_user_name;
+	/* checking existence of user_name */
+	IF (developer_user_name not in (SELECT user_name FROM developer)) THEN
+		RAISE NOTICE '% is invalid user_name', developer_user_name;
 		RETURN false;
 	END IF;
-	own_id := (SELECT developer_id FROM developer WHERE user_name = owner_user_name);
+	own_id := (SELECT developer_id FROM developer WHERE user_name = developer_user_name);
 	
-	IF (parent_repository_name not in (SELECT repository_name FROM repository WHERE repository.owner_id = own_id)) THEN
-		RAISE NOTICE '% is not present in % repositires', parent_repository_name, owner_user_name;
+	/* checking existence of parent_repository_id */
+	IF (parent_repository_id not in (SELECT repository_id FROM repository WHERE repository.owner_id = own_id)) THEN
+		RAISE NOTICE 'repository of id = %, is not present in % repositires', parent_repository_id, developer_user_name;
 		RETURN false;
 	END IF;
-	repo_id := (SELECT repository_id FROM repository WHERE repository_name = parent_repository_name AND repository.owner_id = own_id);
+	parent_repository_name := (SELECT repository_name FROM repository WHERE repository_id = parent_repository_id AND repository.owner_id = own_id);
 	
-	IF (file_name in (SELECT file.file_name FROM file WHERE parent_repository_id = repo_id and file.file_type = create_file.file_type)) THEN
-	 	RAISE NOTICE '% % is already present in % of developer %', file_name, file_type, parent_repository_name, owner_user_name;
+	/* file_name should not already be present in children files of parent repository */
+	/* note that there may exist child repo with name same as file_name */
+	/* file_name with different file types can be siblings */
+	IF (file_name in (SELECT file.file_name 
+					  FROM file 
+					  WHERE file.parent_repository_id = create_file.parent_repository_id and 
+					  		file.file_type = create_file.file_type)) 
+	THEN
+	 	RAISE NOTICE '% % is already child of %(id = %) of developer %', file_name, file_type, parent_repository_name, parent_repository_id, developer_user_name;
 		RETURN false;
 	END IF;
+	
 	file_size := LENGTH(content);
 	create_time := localtimestamp;
 	
@@ -275,205 +441,388 @@ BEGIN
 	SET storage_used = storage_used + file_size
 	WHERE developer.developer_id = own_id;
 	
-	/* updating repositry table */
-	UPDATE repository
-	SET size = size + file_size, last_update = create_time
-	WHERE repository_id = repo_id;
-	
 	/* inserting into file table */
-	INSERT INTO file(file_name, file_type, size, content, parent_repository_id, last_update)
-	VALUES (create_file.file_name, create_file.file_type, file_size, content, repo_id, create_time);
+	INSERT INTO file(file_name, file_type, size, content, parent_repository_id, created_date_time, last_update)
+	VALUES (create_file.file_name, create_file.file_type, file_size, content, parent_repository_id, create_time, create_time);
 	
-	RAISE NOTICE '% file created in % of %.', file_name, parent_repository_name, owner_user_name;
+	/* interactive message */
+	RAISE NOTICE '% file created in % (id = %) of %.', file_name, parent_repository_name, parent_repository_id, developer_user_name;
 	RETURN true;
 END;
 $$ LANGUAGE plpgsql;
 
--- procedure grant_collab_access
--- 			will grant acess if inputs are valid (owner grants collboration access to another user)
--- NOTE: A owner by default has edit, read access of a repository. 
--- In this design, collaborator is one who has edit and read access of repository.(which genrally is the case)
-DROP PROCEDURE IF EXISTS grant_collab_access;
-CREATE OR REPLACE PROCEDURE grant_collab_access(repository_name VARCHAR(100), owner_user_name VARCHAR(100), to_user_name VARCHAR(100))	
+-- function make_private()
+--		if repository is made private then with the help of trigger, all its descendents are also made private
+-- subtle point: Can any repository made private?? or only repostries who are directly owned ny developer can be made private ?????
+CREATE OR REPLACE FUNCTION make_private(repository_id INT, owner_user_name VARCHAR)
+RETURNS BOOLEAN
 AS $$
-DECLARE 
-dont_grant boolean DEFAULT false;
-repo_id INT;
-from_id INT;
-to_id INT;
+DECLARE
+owner_id INT;
+repository_name VARCHAR;
 BEGIN
-	/* checking for validity of user_names */
-	IF (check_user(owner_user_name) = false) THEN
+	/* checking existence of owner_user_name */
+	IF owner_user_name not in (SELECT user_name FROM developer) 
+	THEN
 		RAISE NOTICE '% is not present', owner_user_name;
-		dont_grant := true;
+		RETURN false;
 	END IF;
-	IF (check_user(to_user_name) = false) THEN
-		RAISE NOTICE '% is not present', to_user_name;
-		dont_grant := true;
+	owner_id := (SELECT developer.developer_id FROM developer WHERE developer.user_name = owner_user_name);
+	
+	/* checking existence of repository_id */
+	IF repository_id not in (SELECT repository.repository_id FROM repository) 
+	THEN
+		RAISE NOTICE 'repository with id = % is not present', repository_id;
+		RETURN false;
 	END IF;
-	IF (dont_grant = false) THEN
-		from_id := (SELECT developer_id FROM developer WHERE developer.user_name = grant_collab_access.owner_user_name);
-		to_id := (SELECT developer_id FROM developer WHERE developer.user_name = grant_collab_access.to_user_name);
-	END IF;
-	IF (dont_grant = false) AND (grant_collab_access.repository_name NOT IN
-								(SELECT repository.repository_name FROM repository WHERE repository.owner_id = from_id)) THEN
-		RAISE NOTICE '% is not owner of repository %', owner_user_name, repository_name;
-		dont_grant := true;
+	repository_name := (SELECT repository.repository_name FROM repository WHERE repository.repository_id = make_private.repository_id);
+	
+	/* checking ownership of owner_user_name */
+	IF owner_id <> (SELECT repository.owner_id FROM repository WHERE repository.repository_id = make_private.repository_id)
+	THEN
+		RAISE NOTICE '% is not owner of %(ID = %)', owner_user_name, repository_name, repository_id;
+		RETURN false;
 	END IF;
 	
-	IF (dont_grant = false) THEN
-		repo_id := (SELECT repository.repository_id FROM repository 
-					WHERE repository.repository_name = grant_collab_access.repository_name AND repository.owner_id = from_id);
-		/* grant access */
-		INSERT INTO collaborate
-		VALUES  (repo_id, to_id);
-		
-		/* modify repository */
-		UPDATE repository
-		SET num_workers = num_workers + 1
-		WHERE repository.repository_id = repo_id;
-		
-		RAISE NOTICE 'Access granted!!';
-	ELSE
-		RAISE NOTICE 'Access denied!!';
-	END IF;
+	/* making repository private */
+	UPDATE repository
+	SET is_public = false
+	WHERE repository.repository_id = make_private.repository_id;	
+	RAISE NOTICE 'successfully made private';
+	RETURN true;
 END;
 $$ LANGUAGE plpgsql;
 
+-- creating a trigger for the following scinerio
+--  		whenever a repository is made private
+--			then all its descendant repositries are also made private with the help of trigger
+-- recursive in natrue
+CREATE OR REPLACE FUNCTION procedure_make_private()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NOT NEW.is_public THEN
+        /* Make descendent repositories private */
+        UPDATE repository
+        SET is_public = false
+        WHERE repository_id IN (
+            SELECT repository_id
+            FROM repository
+            WHERE repository.parent_id = NEW.repository_id);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- procedure add_comment
---  		 adds comment to the comment_table provided if the given inputs repository_id, user_name are valid
--- NOTE: 1) We cannot take only repository_name as input parameter for adding comment because there could be multiple repositires with same repository_name
--- 		 2) The current database design supports that any user of OCTOPUS can comment on a repository, if the repository is public (or) he is the owner of the repository (or) collaborator of the repository (or) has access (view basically) to the repository.
--- 			(that is having at least view access)
-DROP PROCEDURE IF EXISTS add_comment;
-CREATE OR REPLACE PROCEDURE add_comment(owner_user_name VARCHAR, repository_name VARCHAR, user_name VARCHAR(100), message VARCHAR(100))
+CREATE OR REPLACE TRIGGER trigger_make_private
+BEFORE UPDATE OF is_public ON repository
+FOR EACH ROW
+EXECUTE FUNCTION procedure_make_private();
+
+--------------------------------------------* read_file *--------------------------------------------
+CREATE OR REPLACE FUNCTION read_file(parent_repository_id INT, file_name VARCHAR)
+RETURNS TABLE (is_readable BOOLEAN, content text) AS $$
+BEGIN
+	
+END;
+$$ LANGUAGE plpgsql;
+
+--------------------------------------------------* grant_or_update_access *--------------------------------------------------
+-- function grant_or_update_access
+-- 			will grant (or) undate access if inputs are valid 
+-- NOTE: A owner by default has edit, read access of a repository. 
+-- 		 In this design, collaborator is one who has edit and read access of repository.(which genrally is the case)
+--		 				 viewer is the one who has read only access
+--		 Only owner can grant access
+CREATE OR REPLACE FUNCTION grant_or_update_access(owner_user_name VARCHAR, repository_id INT, to_user_name VARCHAR, access_type VARCHAR)	
+RETURNS TABLE (given BOOLEAN, msg VARCHAR)
 AS $$
 DECLARE 
-repo_id INT;
-have_permission BOOLEAN DEFAULT false;
-invoke_id INT;
+	from_id INT;
+	to_id INT;
 BEGIN
-	repo_id := (SELECT repository.repository_id FROM repository JOIN developer ON repository.owner_id = developer.developer_id
-			   WHERE repository.repository_name = add_comment.repository_name AND developer.user_name = owner_user_name);
-	IF ((repo_id IN  (SELECT repository.repository_id FROM repository)) AND
-		(add_comment.user_name IN (SELECT developer.user_name FROM developer))) THEN
-		-- given repository_id and user_name are valid
-		invoke_id = (select developer_id FROM developer WHERE developer.user_name = add_comment.user_name);
-		
-		IF ((select is_public FROM repository WHERE repository.repository_id = repo_id) = true) then
-			/* public repository */
-			have_permission := true;
-		ELSIF ((select owner_id FROM repository WHERE repository.repository_id = repo_id) = invoke_id) THEN
-			/* is owner */
-			have_permission := true;
-		ELSIF ( invoke_id IN (SELECT collaborate.developer_id FROM collborate WHERE collaborate.repository_id = repo_id)) THEN
-			/* collaborator */
-			have_permission := true;
-		ELSIF (invoke_id IN (SELECT access.developer_id FROM access WHERE access.repository_id = repo_id)) THEN
-			/* private view access */
-			have_permission := true;
-		END IF;
-		
-		IF (have_permission) THEN
-			INSERT INTO comment(repository_id, developer_id, message, comment_date_time)
-			VALUES (repo_id,
-					invoke_id,
-					add_comment.message,
-					localtimestamp);
-			RAISE NOTICE 'Comment added!!';			
-		ELSE
-			RAISE NOTICE 'From procedure add_comment: No access for % to comment repository with repository_id %!!', add_comment.user_name, repo_id;
-		END IF;
+    /* checking for validity of owner_user_name */
+    IF (check_user(owner_user_name) = false) THEN
+        RETURN QUERY SELECT false, CAST(owner_user_name || ' username is not present' AS VARCHAR) AS msg;
+		RETURN;
+    END IF;
+	
+	/* checking for validity of to_user_name */
+	IF (check_user(to_user_name) = false) THEN
+        RETURN QUERY SELECT false, CAST(to_user_name || ' username is not present' AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
+
+	from_id := (SELECT developer_id FROM developer WHERE developer.user_name = grant_or_update_access.owner_user_name);
+	to_id   := (SELECT developer_id FROM developer WHERE developer.user_name = grant_or_update_access.to_user_name);
+
+	/* checking for validity of repository_id */
+	IF repository_id NOT IN (SELECT repository.repository_id
+							 FROM repository
+							 WHERE repository.repository_id = grant_or_update_access.repository_id and
+							 	    repository.owner_id = from_id)
+ 	THEN
+    	RETURN QUERY SELECT false AS given, CAST('repository of id = ' || repository_id || ' is not owned by ' || owner_user_name AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
+	
+	/* check if the to_user_name has some access to repo */
+	IF EXISTS (SELECT access.repository_id
+			   FROM access
+			   WHERE access.repository_id = grant_or_update_access.repository_id and
+			   		 access.developer_id = to_id)
+	THEN
+		/* there exists some access permission to to_user_name */
+		UPDATE access
+		SET access_type = CAST(grant_or_update_access.access_type AS access_flag)
+		WHERE access.repository_id = grant_or_update_access.repository_id and
+			  access.developer_id = to_id;
+		RETURN QUERY SELECT true AS given, CAST('Access updated!!' AS VARCHAR) AS msg;
 	ELSE
-		RAISE NOTICE 'Invalid input!!';
+		/* grant access */
+		INSERT INTO access(repository_id, developer_id, access_type)
+		VALUES  (grant_or_update_access.repository_id, to_id, CAST(grant_or_update_access.access_type AS access_flag));
+
+		RETURN QUERY SELECT true AS given, CAST('Access granted!!' AS VARCHAR) AS msg;
 	END IF;
 END;
 $$ LANGUAGE plpgsql;
 
--- Inserting data using create_user function
-SELECT create_user('_sandeep_', 'sandeep reddy', '112101011@smail.iitpkd.ac.in', 'palakkad@3');
-SELECT create_user('_manish_', 'manish', '112101002@smail.iitpkd.ac.in', 'apple@22');
-SELECT create_user('_swarna_', 'sunapral swarnalatha bai', '112101003@smail.iitpkd.ac.in', 'pass123');
 
--- SELECT create_user('_sandeep_', 'sandy', 'sandeep@gmail.com', 'iitpkd@2025'); example for not inserted
+------------------------------------------trigger-------------------------------------------------------------
+-- creating a trigger for the following scinerio															--
+--  		whenever a user is given access to a repository 												--
+--			then all its descendant repositries are also given access with the help of recursive trigger	--
+CREATE OR REPLACE FUNCTION function_grant_or_update_access() 												--
+RETURNS TRIGGER AS $$																						--
+DECLARE																										--
+	children CURSOR FOR																						--
+			(SELECT repository_id							
+			 FROM  repository								
+			 WHERE repository.parent_id = NEW.repository_id);
+	child RECORD;																							--
+	prev_access_type access_flag;																			--
+BEGIN
+    IF (TG_OP = 'INSERT') THEN
+        /* for insert operation */
+			OPEN children;
+			LOOP
+				FETCH children INTO child;
+				EXIT WHEN NOT FOUND;
+				
+				SELECT access.access_type
+				INTO prev_access_type
+				FROM access
+				WHERE access.repository_id = child.repository_id and
+	   		   		  access.developer_id = NEW.developer_id;
+					  
+				IF prev_access_type IS NOT NULL 
+				THEN
+					/* Then there exists some access tuple related to child, developer */
+					IF prev_access_type <> NEW.access_type 
+					THEN
+						/* need to update the access flag */
+						UPDATE access
+						SET access_type = NEW.access_type
+						WHERE access.repository_id = child.repository_id and
+							  access.developer_id = NEW.developer_id;
+					END IF;
+				ELSE
+					/* There is no tuple in access table related to child, developer */
+					/* So need to insert into access table 							 */
+					INSERT INTO access(repository_id, developer_id, access_type)
+					VALUES (child.repository_id, NEW.developer_id, NEW.access_type);
+				END IF;
+			END LOOP;
+			CLOSE children;
+    ELSIF (TG_OP = 'UPDATE') THEN
+		/* for update operation 												*/
+		/* when parent repo is getting updated, then child repo must be updated */
+		/* thanks to invariant 													*/
+			OPEN children;
+			LOOP
+				FETCH children INTO child;
+				EXIT WHEN NOT FOUND;
 
+				UPDATE access
+				SET access_type = NEW.access_type
+				WHERE access.repository_id = child.repository_id and
+					  access.developer_id = NEW.developer_id;
+			END LOOP;
+			CLOSE children;																					--
+    END IF;																									--
+	/* Thanks to recursion !! */																			--
+    RETURN NEW;																								--
+END;																								   --
+$$ LANGUAGE plpgsql;																						--
+																											--
+CREATE OR REPLACE TRIGGER trigger_grant_or_update_access													--
+BEFORE INSERT OR UPDATE ON access																			--
+FOR EACH ROW																								--
+EXECUTE FUNCTION function_grant_or_update_access();															--
+--------------------------------------------------------------------------------------------------------------
+
+-----------------------------------------* 		  add_commit 		 *------------------------------------------------------
+CREATE OR REPLACE FUNCTION add_commit(repository_id INT, branch_id INT, user_name VARCHAR)								  --
+RETURNS TABLE(status BOOLEAN, msg VARCHAR) 
+AS $$
+DECLARE
+	branch_id INT;
+	developer_id INT;
+BEGIN
+	/* checking for valid user_name */
+	IF (check_user(user_name) == false)
+	THEN
+		RETURN QUERY SELECT false AS status, CAST('Invalid user_name' AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
+	
+	/* checking for validity of branch id */
+	IF branch_id NOT IN (SELECT branch.branch_id FROM branch WHERE branch)
+	THEN
+		RETURN QUERY SELECT false AS status, CAST('Invalid branch' AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
+	
+END;
+$$ LANGUAGE plpgsql;
+-----------------------------------------------------------------------------------------------------------------------------
+
+
+-----------------------------------------* 		test area start 	 *-----------------------------------------
+
+SELECT create_user('_sandeep_', 'sandeep reddy', '112101011@smail.iitpkd.ac.in', '2122');
 SELECT * FROM developer;
+SELECT login_user('_sandeep_', '2122');
+select create_repo('DBMS', 1, '_sandeep_');
+select create_repo('Compilers', 1, '_sandeep_');
+select create_repo('OELP', 1, '_sandeep_');
 
--- creating repostires (data)
-select create_repo('math', '_sandeep_');
-select create_repo('phy', '_sandeep_');
-select create_repo('math', '_manish_');
-select create_repo('chem', '_swarna_');
+select create_repo('Lab1', 2, '_sandeep_');
+select create_repo('Lab2', 2, '_sandeep_');
+select create_repo('Lab1', 3, '_sandeep_');
+select create_repo('Lab2', 3, '_sandeep_');
+select create_repo('References', 7, '_sandeep_');
 
-SELECT * FROM developer;
+-- creating files
+SELECT create_file('readme', 'md', 'Name: Chekkala Sandeep Reddy <br/> Roll Number: 112101011 <br/> ', 2, '_sandeep_');
+SELECT create_file('code', 'sql', ' SELECT * FROM student; ', 5, '_sandeep_');
+SELECT create_file('code', 'sql', '-- Find pairs of films whose lengths are equal, (Here pair is unordered)
+									SELECT f1.title, f2.title, f1.length
+									FROM 	
+										film as f1
+									INNER JOIN  film as f2
+										 ON f1.film_id > f2.film_id AND f1.length = f2.length
+									ORDER BY f1.length; ', 6, '_sandeep_');
+SELECT create_file('compiler', 'l', 'ffdfdfdffddf ', 7, '_sandeep_');
+SELECT create_file('compiler', 'y', ' ', 7, '_sandeep_');
+SELECT create_file('compiler', 'l', ' ', 8, '_sandeep_');
+SELECT create_file('compiler', 'y', ' ', 8, '_sandeep_');
+
 SELECT * FROM repository;
 
-select create_repo('chem', '_swarna_'); /* duplicate repositires are not allowed */
 
--- adding files
-SELECT create_file('problems', 'txt', 'In how many ways n choclates can be split across k children?', 'math', '_sandeep_');
-SELECT create_file('exams', 'txt', 'exam1, exam2, exam3', 'math', '_sandeep_');
-SELECT create_file('labs', 'txt', 'Why convex mirrors are used in rear view mirrors of motor vehicles?', 'phy', '_sandeep_');
-SELECT create_file('problems', 'txt', 'Are L1, L2 NORMS are equivalent? If yes proove.', 'math', '_manish_');
-SELECT create_file('labs', 'txt', 'What are the affects of having hydrogen boding in water?', 'chem', '_swarna_');
-
+/* making Compilers repository private */
+SELECT make_private(3, '_sandeep_');
 SELECT * FROM file;
+
+-- /* creating developer _manish_ */
+SELECT create_user('_manish_', 'Manish M H', '112101002@smail.iitpkd.ac.in', '2123');
 SELECT * FROM developer;
 SELECT * FROM repository;
 
--- granting collaboration
-CALL  grant_collab_access('math', '_manish_', '_sandeep_');
-CALL  grant_collab_access('math', '_manish_', '_swarna_');
+-- /* granting access to _manish_ */
+SELECT * FROM access;
+-- beauty of octopus is that, you can grant access to any repository (need not be root)
+-- github doesn't allow it !!
+SELECT * FROM access; give access to any sub-repositry, and not access to only repositries directly parented by developer
 
-/* _sandeep_ granted collaboration access to _manish_ for repository 'phy': */
-CALL  grant_collab_access('phy', '_sandeep_', '_manish_'); 
+SELECT grant_or_update_access('_sandeep_', 7, '_manish_', 'collaborator');
 
-SELECT * FROM repository;
-SELECT * FROM collaborate;
+SELECT grant_or_update_access('_sandeep_', 7, '_manish_', 'viewer');
+SELECT * FROM access;
 
--- comments by developers.
-CALL add_comment('_sandeep_', 'math', '_manish_', 'math: Answer to the problem is (n+k-1)^2');
-CALL add_comment('_sandeep_', 'math', '_sandeep_', 'math: NO!! (n+k-1) choose k');
-CALL add_comment('_sandeep_', 'phy', '_swarna_', 'phy: gives full size diminished image of distant objects');
-CALL add_comment('_swarna_', 'chem', '_sandeep_', 'chem: High boiling point');
-CALL add_comment('_swarna_', 'chem', '_manish_', 'chem: Expansion upon freezing!!');
-
-SELECT * FROM comment;
+SELECT grant_or_update_access('_sandeep_', 3, '_manish_', 'collaborator');
+SELECT * FROM access;
 
 
 
--- Query1) Give the number of files owned by each of the developers in descending order.
-SELECT d.developer_id, d.user_name, count(file_id) as "number of files"
-FROM developer d, repository r, file f
-WHERE d.developer_id = r.owner_id AND f.parent_repository_id = r.repository_id
-GROUP BY d.developer_id
-ORDER BY "number of files" DESC;
+-----------------------------------------* 	  	 test area end       *---------------------------------------------------------
+-- -- procedure add_comment
+-- --  		 adds comment to the comment_table provided if the given inputs repository_id, user_name are valid
+-- -- NOTE: 1) We cannot take only repository_name as input parameter for adding comment because there could be multiple repositires with same repository_name
+-- -- 		 2) The current database design supports that any user of OCTOPUS can comment on a repository, if the repository is public (or) he is the owner of the repository (or) collaborator of the repository (or) has access (view basically) to the repository.
+-- -- 			(that is having at least view access)
+-- DROP PROCEDURE IF EXISTS add_comment;
+-- CREATE OR REPLACE PROCEDURE add_comment(owner_user_name VARCHAR, repository_name VARCHAR, user_name VARCHAR(100), message VARCHAR(100))
+-- AS $$
+-- DECLARE 
+-- repo_id INT;
+-- have_permission BOOLEAN DEFAULT false;
+-- invoke_id INT;
+-- BEGIN
+-- 	repo_id := (SELECT repository.repository_id FROM repository JOIN developer ON repository.owner_id = developer.developer_id
+-- 			   WHERE repository.repository_name = add_comment.repository_name AND developer.user_name = owner_user_name);
+-- 	IF ((repo_id IN  (SELECT repository.repository_id FROM repository)) AND
+-- 		(add_comment.user_name IN (SELECT developer.user_name FROM developer))) THEN
+-- 		-- given repository_id and user_name are valid
+-- 		invoke_id = (select developer_id FROM developer WHERE developer.user_name = add_comment.user_name);
+		
+-- 		IF ((select is_public FROM repository WHERE repository.repository_id = repo_id) = true) then
+-- 			/* public repository */
+-- 			have_permission := true;
+-- 		ELSIF ((select owner_id FROM repository WHERE repository.repository_id = repo_id) = invoke_id) THEN
+-- 			/* is owner */
+-- 			have_permission := true;
+-- 		ELSIF ( invoke_id IN (SELECT collaborate.developer_id FROM collborate WHERE collaborate.repository_id = repo_id)) THEN
+-- 			/* collaborator */
+-- 			have_permission := true;
+-- 		ELSIF (invoke_id IN (SELECT access.developer_id FROM access WHERE access.repository_id = repo_id)) THEN
+-- 			/* private view access */
+-- 			have_permission := true;
+-- 		END IF;
+		
+-- 		IF (have_permission) THEN
+-- 			INSERT INTO comment(repository_id, developer_id, message, comment_date_time)
+-- 			VALUES (repo_id,
+-- 					invoke_id,
+-- 					add_comment.message,
+-- 					localtimestamp);
+-- 			RAISE NOTICE 'Comment added!!';			
+-- 		ELSE
+-- 			RAISE NOTICE 'From procedure add_comment: No access for % to comment repository with repository_id %!!', add_comment.user_name, repo_id;
+-- 		END IF;
+-- 	ELSE
+-- 		RAISE NOTICE 'Invalid input!!';
+-- 	END IF;
+-- END;
+-- $$ LANGUAGE plpgsql;
 
--- Query2) Find all files owned by '_manish_'
-SELECT f.file_id, f.file_name, f.file_type
-FROM developer d, repository r, file f
-WHERE d.developer_id = r.owner_id AND f.parent_repository_id = r.repository_id AND d.user_name = '_manish_';
+-- -- 5) comment table
+-- CREATE TABLE comment(
+-- 	repository_id INT,
+-- 	developer_id INT,
+-- 	comment_id SERIAL, 
+-- 	message	VARCHAR(100),
+-- 	comment_date_time timestamp,
+	
+-- 	PRIMARY KEY(repository_id, developer_id, comment_id),
+-- 	FOREIGN KEY (repository_id) 
+-- 	REFERENCES repository(repository_id) ON DELETE CASCADE,
+-- 	FOREIGN KEY (developer_id) 
+-- 	REFERENCES developer(developer_id) ON DELETE CASCADE
+-- );
 
--- Query3) Find all comments which are made on repositires owned by '_sandeep_'
-SELECT (SELECT developer.user_name FROM developer WHERE developer.developer_id = c.developer_id),
-		c.message
-FROM developer d, repository r, comment c
-WHERE d.user_name = '_sandeep_' AND
-	  d.developer_id = r.owner_id AND
-	  c.repository_id = r.repository_id;
-
-
--- Query4) Find all comments made by developer '_sandeep_'
-SELECT comment.message
-FROM developer, comment
-WHERE developer.user_name = '_sandeep_' AND 
-	  comment.developer_id = developer.developer_id;
-
--- Query5) Find the content of all files which are present in repositires commented by '_manish_'
-SELECT file.file_id, file.content
-FROM file, repository, comment, developer
-WHERE developer.user_name = '_manish_' AND
-	  comment.developer_id = developer.developer_id AND
-	  comment.repository_id = repository.repository_id AND
-	  file.parent_repository_id = repository.repository_id;
+-- -- 9) tag table
+-- CREATE TABLE tag(
+-- 	repository_id INT,
+-- 	developer_id INT,
+-- 	tag_id INT,
+-- 	commit_id INT,
+-- 	tag_name VARCHAR(50) NOT NULL,
+-- 	tag_date_time timestamp,
+	
+-- 	PRIMARY KEY(repository_id, developer_id, tag_id),
+-- 	FOREIGN KEY (repository_id) REFERENCES repository(repository_id),
+-- 	FOREIGN KEY (developer_id) REFERENCES developer(developer_id),
+-- 	FOREIGN KEY (commit_id) REFERENCES commit(commit_id)
+-- );
