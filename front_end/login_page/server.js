@@ -1,7 +1,7 @@
 
 ////////////////////////////Step 1 Rendering your html page////////////////////////////////////////////
-
 const express=require('express');
+const cors = require('cors');
 const app=express();
 const port= 2000;
 
@@ -13,6 +13,10 @@ app.get("/", (req, res) => {
     res.sendFile(__dirname + "/signup.html");
 });
 
+app.use(cors({
+    origin: 'http://localhost:3001'
+  }));
+  
 
 app.use(bodyParser.urlencoded({extended: false}))
 // app.get('c',function(req,res){
@@ -55,20 +59,16 @@ app.post("/",(req,res)=>{
 })
 
 app.post("/login",(req,res)=>{
-    const { Username, password}=req.body
-    client.query(' SELECT login_user($1, $2) AS login_user_result; ', [Username, password], (err,queryRes)=> {
+    console.log("dasdfdfv");
+    const { username, password}=req;
+
+    client.query(' SELECT * FROM developer where developer.user_name = $1;  ', [username, password], (err,queryRes)=> {
+        
         console.log(err,queryRes);
-        // console.log(res.command);    
-        //alert("Data Saved");
+
         const loginUserResult = queryRes.rows[0].login_user_result;
         console.log('Result of loginUserResult:', loginUserResult);
-        if(loginUserResult == -1){
-            /* problem in logging int */
-            res.sendFile(__dirname + "/error_page.html");
-        }else{
-            /* go to profile */
-            res.sendFile(__dirname + "/profile.html");
-        }
+        res.send(loginUserResult);
     })
 })
 // client.end(); // need to see!!

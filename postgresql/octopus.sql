@@ -1,4 +1,6 @@
 
+
+
 -- view for all commits to a branch
 -- -- upload_file()  
 -- -- branch table   
@@ -13,7 +15,7 @@
 -- -- delete account()
 -- request_access()
 
-
+DROP TYPE IF EXISTS access_flag CASCADE;
 DROP EXTENSION IF EXISTS pgcrypto;
 DROP TABLE IF EXISTS commit CASCADE;
 DROP TABLE IF EXISTS tag CASCADE;
@@ -26,22 +28,30 @@ DROP TABLE IF EXISTS fork CASCADE;
 
 DROP TABLE IF EXISTS developer CASCADE;
 DROP TABLE IF EXISTS repository CASCADE;
+
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- The crypt function is a one-way hashing function, meaning it transforms data into a fixed-length string
+-- (hash) that cannot be reversed to recover the original data.
 
 
------------------------developer table------------------------------------
-CREATE TABLE developer(                                                 --    
-   developer_id SERIAL PRIMARY KEY,                                    --
-   user_name VARCHAR(100) UNIQUE NOT NULL,                             --
-   name VARCHAR(100) NOT NULL,                                         --
-   email VARCHAR(100) UNIQUE NOT NULL,                                 -- |||||||||||||||||||||||||||||||
-                                                                       -- |||||   DEVELOPER TABLE   |||||
-   encrypted_password VARCHAR(100) NOT NULL,                           -- |||||||||||||||||||||||||||||||  
-   num_repos INT DEFAULT 0 CHECK(num_repos >= 0),                      --  
-   storage_used INT DEFAULT 0 CHECK(storage_used >= 0),                --  
-   total_commits INT DEFAULT 0 CHECK(total_commits >= 0)               --
-);                                                                      --
 --------------------------------------------------------------------------
+CREATE TABLE developer(                                                 --    
+   developer_id SERIAL PRIMARY KEY,                                    	--
+   user_name VARCHAR(100) UNIQUE NOT NULL,                             	--
+   name VARCHAR(100) NOT NULL,                                         	--
+   email VARCHAR(100) UNIQUE NOT NULL,                                 	-- |||||||||||||||||||||||||||||||
+                                                                       	-- |||||   DEVELOPER TABLE   |||||
+   encrypted_password VARCHAR(100) NOT NULL,                           	-- |||||||||||||||||||||||||||||||  
+   num_repos INT DEFAULT 0 CHECK(num_repos >= 0),                      	--  
+   storage_used INT DEFAULT 0 CHECK(storage_used >= 0),                	--  
+   total_commits INT DEFAULT 0 CHECK(total_commits >= 0)               	--
+);                                                      				--
+--------------------------------------------------------------------------
+
+-- '_octopus_' will be present in developer table (super developer)
+-- developer_id 1 is reserved for '_octopus_'
+INSERT INTO developer(user_name, name, email, encrypted_password)
+VALUES  ('_octopus_', 'Super developer', 'octopus2024@gmail.com', (crypt('octopus', '$2024$DBMS$fixedsalt')));
 
 -----------------------repository table------------------------------------
 CREATE TABLE repository(                                                 --
@@ -53,27 +63,31 @@ CREATE TABLE repository(                                                 --
    root_id INT,                        /* root of the tree   */          --
    parent_id INT,                      /* parent of the repo */          --
    creator_id INT NOT NULL,            /* worker who created */          --
+   recent_commit_node INT DEFAULT NULL, 
                                                                          --
    FOREIGN KEY (owner_id)                                                --
    REFERENCES developer(developer_id) ON DELETE CASCADE,                 --
    FOREIGN KEY (creator_id)                                              --
-   REFERENCES developer(developer_id) ON DELETE CASCADE,                 --
+   REFERENCES developer(developer_id) ,                 				 --
    FOREIGN KEY (root_id)                                                 --
    REFERENCES repository(repository_id),                                 --
    FOREIGN KEY (parent_id)                                               --
-   REFERENCES repository(repository_id)                                  --
+   REFERENCES repository(repository_id) ON DELETE CASCADE                --
+--    FOREIGN KEY (recent_commit_node)
+--    REFERENCES commit_repository(repository_id) ?????????????????????????????????
 );                                                                       --
 ---------------------------------------------------------------------------
 
 -- owner of the file is the owner of its parent repository
 -- creater of the file is any worker (may not be active worker)
--- 3) file table
+-- file table
+-- file is a leaf in the TREE
 CREATE TABLE file(
    file_id SERIAL PRIMARY KEY,
    file_name VARCHAR(50) NOT NULL,
    file_type VARCHAR(10),
    size INT DEFAULT 0,
-   content text,
+   content text DEFAULT '',
    parent_repository_id INT NOT NULL,
    created_date_time timestamp,
    last_update timestamp,
@@ -82,117 +96,244 @@ CREATE TABLE file(
    FOREIGN KEY(parent_repository_id)
    REFERENCES repository(repository_id) ON DELETE CASCADE,
    FOREIGN KEY(creator_id)
-   REFERENCES developer(developer_id) ON DELETE CASCADE
-);
-
-
-/* creating datatype for different access */
-DROP TYPE IF EXISTS access_flag CASCADE;
-CREATE TYPE access_flag AS ENUM ('collaborator', 'viewer');
-
-
--- 4) access table
-CREATE TABLE access(
-   repository_id INT,
-   developer_id INT,
-   access_type access_flag,
-  
-   PRIMARY KEY(repository_id, developer_id),
-   FOREIGN KEY (repository_id)
-   REFERENCES repository(repository_id) ON DELETE CASCADE,
-   FOREIGN KEY (developer_id)
-   REFERENCES developer(developer_id) ON DELETE CASCADE
-);
-
-
--- commit area includes the following:
---      1) commit_repository_table
---      2) commit_file_table
--- commit_repository_table
--- who can commit?
--- a worker can commit
---          1) a owner is a worker
---          2) a collabarator is a worker
-DROP TABLE IF EXISTS commit_repository CASCADE;
-CREATE TABLE commit_repository(
-   repository_id INT PRIMARY KEY,
-   repository_name VARCHAR(100) NOT NULL,
-   created_date_time timestamp,
-   owner_id INT NOT NULL,
-   is_public BOOLEAN DEFAULT true,
-   parent_id INT,
-   root_id INT,
-  
-   FOREIGN KEY (owner_id)
    REFERENCES developer(developer_id)
-   ON DELETE CASCADE
 );
 
-
--- commit_file_table
-DROP TABLE IF EXISTS commit_file_table CASCADE;
-CREATE TABLE commit_file_table(
-   file_id SERIAL PRIMARY KEY,
-   file_name VARCHAR(50) NOT NULL,
-   file_type VARCHAR(10),
-   size INT DEFAULT 0,
-   content text,
-   parent_repository_id INT NOT NULL,
-   created_date_time timestamp,
-   last_update timestamp,
+-- comment table
+CREATE TABLE comment(
+ repository_id INT,
+ developer_id INT,
+ comment_id SERIAL,
+ message VARCHAR(100),
+ comment_date_time timestamp,
   
-   FOREIGN KEY (parent_repository_id)
-   REFERENCES commit_repository(repository_id) ON DELETE CASCADE
+ PRIMARY KEY(repository_id, developer_id, comment_id),
+ FOREIGN KEY (repository_id)
+ REFERENCES repository(repository_id) ON DELETE CASCADE,
+ FOREIGN KEY (developer_id)
+ REFERENCES developer(developer_id) ON DELETE CASCADE
 );
 
+------------------------------------------------------------------------------
+/* creating datatype for different access */								--
+CREATE TYPE access_flag AS ENUM ('collaborator', 'viewer');					--
+																			--
+CREATE TABLE access(														--
+   repository_id INT,														--
+   developer_id INT,														-- |||||||||||||||||||||||||||||||			
+   access_type access_flag,													-- |||||     ACCESS TABLE    |||||
+  																			-- |||||||||||||||||||||||||||||||
+   PRIMARY KEY(repository_id, developer_id),								--
+   FOREIGN KEY (repository_id)												--
+   REFERENCES repository(repository_id) ON DELETE CASCADE,					--
+   FOREIGN KEY (developer_id)												--
+   REFERENCES developer(developer_id) ON DELETE CASCADE					 	--
+);																		 	--
+------------------------------------------------------------------------------
+
+---------------------------------------------------------------------------------------------------------------
+-- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- ||||||																								 ||||||
+-- ||||||    ____   ____  _    _  _    _  _____  _____		    _     _______    _____ 		_            ||||||
+-- ||||||   |	   |\	| |\  /|  |\  /|    |      |		   / \    |     |   |    	   / \           ||||||
+-- ||||||   |	   | \	| |	\/ |  |	\/ |    |	   |		  /	  \   |_____|   |_____    /   \          ||||||
+-- ||||||   |	   |  \ | |    |  |    |    |      |		 /-----\  |     \   |  		 /-----\         ||||||
+-- ||||||   |____  |___\| |    |  |    |  __|__	   |		/       \ |      \  |_____	/       \	     ||||||
+-- ||||||																					     		 ||||||
+-- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+																										 ------
+-- commit area includes the following tables:															 ------	
+--      1) commit_repository												
+--      2) commit_file 
+--		3) branch 
+--      4) commit 
 
 -- branch is a weak entity
 -- branch does not exist if repository for which developer is direct parent does not exists
 -- there could be multiple branches with same repository and developer_id
 DROP TABLE IF EXISTS branch CASCADE;
 CREATE TABLE branch(
-   branch_id INT PRIMARY KEY,
+   branch_id SERIAL PRIMARY KEY,
    branch_name VARCHAR NOT NULL,
-   repository_id INT NOT NULL,                         /* repository id */
-   creator_id INT,                                     /* developer id  */
+   repository_id INT NOT NULL,                        	 /* repository id */
+   creator_id INT,                                    	 /* developer id  */
   
    FOREIGN KEY (repository_id)
    REFERENCES repository(repository_id) ON DELETE CASCADE,
    FOREIGN KEY (creator_id)
-   REFERENCES developer(developer_id) ON DELETE CASCADE
+   REFERENCES developer(developer_id) 
 );
-
 
 -- commit table
 -- a commit is uniquely identified by
 --          branch
 --          developer
---          repository
 --          time (at different times same developer can commit to same branch in same repository)
 CREATE TABLE commit(
    commit_id INT PRIMARY KEY,
-   repository_id INT,                  /* repository where commit took place                   */
-   developer_id INT,                   /* developer who committed                              */
-   commit_root_node INT NOT NULL,      /* this points to commit area                           */
+   developer_id INT,                   /* developer who committed  (worker)                    */
    branch_id INT NOT NULL,             /* this points to branch to which a commit belongs to   */
-   message VARCHAR(100),
+   message VARCHAR(100) NOT NULL,
    commit_date_time timestamp,
   
-   FOREIGN KEY (repository_id)
-   REFERENCES repository(repository_id) ON DELETE CASCADE,
    FOREIGN KEY (developer_id)
-   REFERENCES developer(developer_id) ON DELETE CASCADE,
-   FOREIGN KEY (commit_root_node)
-   REFERENCES commit_repository(repository_id) ON DELETE CASCADE,
+   REFERENCES developer(developer_id),
    FOREIGN KEY (branch_id)
-   REFERENCES branch (branch_id)
+   REFERENCES branch (branch_id) ON DELETE CASCADE														
+);		
+
+-- commit_repository
+-- who can commit?
+-- a worker can commit
+--          1) a owner is a worker
+--          2) a collabarator is a worker
+DROP TABLE IF EXISTS commit_repository CASCADE;
+CREATE TABLE commit_repository(
+   repository_id INT PRIMARY KEY,                                        --
+   repository_name VARCHAR(100) NOT NULL,                                --
+   created_date_time timestamp,                                          --
+   owner_id INT NOT NULL,                                                --
+   is_public BOOLEAN DEFAULT true,                                       --
+   root_id INT,                        /* root of the tree   */          --
+   parent_id INT,                      /* parent of the repo */          --
+   creator_id INT NOT NULL,            /* worker who created */          --
+   commit_id INT NOT NULL,                                               --
+	
+   FOREIGN KEY (owner_id)                                                --
+   REFERENCES developer(developer_id) ON DELETE CASCADE,                 --
+   FOREIGN KEY (creator_id)                                              --
+   REFERENCES developer(developer_id),  
+   FOREIGN KEY (root_id)                                                 --
+   REFERENCES commit_repository(repository_id),                          --
+   FOREIGN KEY (parent_id)                                               --
+   REFERENCES commit_repository(repository_id),                          
+   FOREIGN KEY (commit_id)
+   REFERENCES commit(commit_id) ON DELETE CASCADE
 );
 
+-- commit_file_table
+DROP TABLE IF EXISTS commit_file CASCADE;
+CREATE TABLE commit_file(
+   file_id SERIAL PRIMARY KEY,
+   file_name VARCHAR(50) NOT NULL,
+   file_type VARCHAR(10),
+   size INT DEFAULT 0,
+   content text DEFAULT '',
+   parent_repository_id INT NOT NULL,
+   created_date_time timestamp,
+   last_update timestamp,
+   creator_id INT NOT NULL,
+  
+   FOREIGN KEY(parent_repository_id)
+   REFERENCES commit_repository(repository_id) ON DELETE CASCADE,
+   FOREIGN KEY(creator_id)
+   REFERENCES developer(developer_id)
+);
 
------------------------------------------* END OF CREATION OF TABLES *------------------------------------------------------
+-- tag table
+CREATE TABLE tag(
+ repository_id INT,
+ developer_id INT,
+ tag_id INT,
+ commit_id INT,
+ tag_name VARCHAR(50) NOT NULL,
+ tag_date_time timestamp,
+  
+ PRIMARY KEY(repository_id, developer_id, tag_id),
+ FOREIGN KEY (repository_id) REFERENCES repository(repository_id),
+ FOREIGN KEY (developer_id) REFERENCES developer(developer_id),
+ FOREIGN KEY (commit_id) REFERENCES commit(commit_id)
+);
+
+-- -- branch_head
+-- --		for each head, it has corresponding head commit id
+-- -- 		head of a branch ~ latest commit to a branch
+-- -- branch_head is used very frequently, so the one of the optimistic options to store as physical table
+-- -- NOTE: we can also create view for it, but it is ineffecient because for each branch you need to sort all commits made to the branch 
+-- -- 		 based on committed time and then take the latest commit (not worth!!)
+-- -- you cannot add head_id feild in branch because it will create cyclicity between branch and commit
+-- DROP TABLE IF EXISTS branch_head;
+-- CREATE TABLE branch_head(
+-- 	branch_id INT PRIMARY KEY,
+-- 	head_id INT,
+	
+-- 	FOREIGN KEY (branch_id)
+-- 	REFERENCES branch(branch_id) ON DELETE CASCADE,
+-- 	FOREIGN KEY (head_id)
+-- 	REFERENCES commit(commit_id)
+-- );	
+
+---------------------- view for root of each commit ------------------------------
+CREATE OR REPLACE VIEW commit_root AS
+SELECT commit.commit_id AS commit_id, commit_repository.repository_id AS commit_root_id
+FROM commit JOIN commit_repository using(commit_id)
+WHERE commit_repository.repository_id = commit_repository.root_id;
 
 
------------------------------------------*    FUNCTION: login_user   *------------------------------------------
+-----------------------------------------------------------------------------------------
+-- Trigger for the following scienerio
+--			whenever a branch is created, a tuple should should be created in branch_head
+--			whenever a commit is added, the tuple in branch_head should be updated
+-- DROP FUNCTION IF EXISTS function_branch_creation;
+-- CREATE OR REPLACE FUNCTION function_branch_creation()
+-- RETURNS TRIGGER AS $$
+-- BEGIN
+-- 	IF (TG_TABLE_NAME = 'branch') 
+-- 	THEN
+-- 		INSERT INTO branch_head(branch_id)
+-- 		VALUES (NEW.branch_id);
+-- 	ELSIF (TG_TABLE_NAME = 'commit')
+-- 	THEN
+-- 		UPDATE branch_head
+-- 		SET branch_head.head_id = NEW.commit_id
+-- 		WHERE branch_head.branch_id = NEW.branch_id;
+-- 	END IF;
+-- 	RETURN NEW;	
+-- END;
+-- $$ LANGUAGE plpgsql;
+
+-- DROP TRIGGER IF EXISTS trigger_branch_creation ON branch;
+-- CREATE OR REPLACE TRIGGER trigger_branch_creation
+-- AFTER INSERT ON branch
+-- FOR EACH ROW 
+-- EXECUTE FUNCTION function_branch_creation();
+
+-- DROP TRIGGER IF EXISTS trigger_commit_addition ON commit;
+-- CREATE OR REPLACE TRIGGER trigger_commit_addition
+-- BEFORE INSERT ON commit
+-- FOR EACH ROW 
+-- EXECUTE FUNCTION function_branch_creation();
+
+---------------------------------------------------------------------------------------------------------------
+
+-----------------------------------------* END OF CREATION OF TABLES *------------------------------------------
+
+------------------------------* Helper function: is_worker() checks whether developer is worker of a repository *------------------------------
+CREATE OR REPLACE FUNCTION is_worker(developer_id INT, repository_id INT)
+RETURNS BOOLEAN AS $$
+BEGIN
+   IF is_worker.developer_id = (SELECT owner_id
+                                FROM repository
+                                WHERE repository.repository_id = is_worker.repository_id)
+   THEN
+       /* is owner */
+       RETURN true;
+   END IF;
+  
+   IF is_worker.developer_id in (SELECT access.developer_id
+                                 FROM access
+                                 WHERE access.repository_id = is_worker.repository_id AND
+                                       access.access_type = CAST('collaborator' AS access_flag))
+   THEN
+       /* is collaborator */
+       RETURN true;
+   END IF;
+  
+   RETURN false;
+END;
+$$ LANGUAGE plpgsql;
+
+-----------------------------------------*  API: login_user   *------------------------------------------
 -- The function login_user
 --                  returns developer_id
 --                  returns -1
@@ -213,12 +354,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-
--- The crypt function is a one-way hashing function, meaning it transforms data into a fixed-length string
--- (hash) that cannot be reversed to recover the original data.
-
-
------------------------------------------*    FUNCTION: check_user   *------------------------------------------
+-----------------------------------------*   Helper function: check_user   *------------------------------------------
 -- The function check_user (lookup)
 --                  returns true if the input user_name is present (that is the provided user_name is valid)
 --                  returns false otherwise
@@ -232,7 +368,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 
------------------------------------------*    FUNCTION: create_user   *------------------------------------------
+-----------------------------------------* API function: create_user   *------------------------------------------
 -- function create_user
 --                  creates user if email, username are not already found in developer table and returns true if valid,
 --                  else return false
@@ -267,6 +403,7 @@ BEGIN
    developer_id := (SELECT developer.developer_id
                     FROM developer
                     WHERE developer.user_name = create_user.user_name);
+   
    /* Every developer has one repository created by octopus */
    /* COALESCE() function returns first non-null expression in its list of arguments */
    repo_name := '@' || user_name;
@@ -275,48 +412,26 @@ BEGIN
             repo_name,
             localtimestamp,
             developer_id,
-            developer_id
+            1
    );
-  
+   
+   /* branch 'master' is created for repo_name */
+   INSERT INTO branch(branch_name, repository_id, creator_id)
+   VALUES ('master', (SELECT repository.repository_id FROM repository WHERE repository.repository_name = repo_name), 1); -- created by _octopus_
+   
    /* Interactive message */
    RAISE NOTICE 'Welcome to cloud-repository octopus %!!', create_user.name;
    return true;
 END;
 $$ LANGUAGE plpgsql;
+
 -----------------------------------------*  VIEW : immediate_repos *--------------------------------------------
 -- CREATE OR REPLACE VIEW immediate_repos AS
 -- SELECT  
 -- FROM
 -- WHERE
 
-
------------------------------- helper functions ------------------------------
-CREATE OR REPLACE FUNCTION is_worker(developer_id INT, repository_id INT)
-RETURNS BOOLEAN AS $$
-BEGIN
-   IF is_worker.developer_id = (SELECT owner_id
-                                FROM repository
-                                WHERE repository.repository_id = is_worker.repository_id)
-   THEN
-       /* is owner */
-       RETURN true;
-   END IF;
-  
-   IF is_worker.developer_id in (SELECT access.developer_id
-                                 FROM access
-                                 WHERE access.repository_id = is_worker.repository_id AND
-                                       access.access_type = CAST('collaborator' AS access_flag))
-   THEN
-       /* is collaborator */
-       RETURN true;
-   END IF;
-  
-   RETURN false;
-END;
-$$ LANGUAGE plpgsql;
-
-
------------------------------------------*    FUNCTION: create_repo   *------------------------------------------
+-----------------------------------------* API(function): create_repo   *--------------------------------------------------------------------
 -- function create_repo
 --          create_repo checks all conditions (mentioned in below function) and throws error if any condition fails
 --          if all conditions are met, then a new repository and a new link between new repository and parent repository is created
@@ -397,6 +512,8 @@ BEGIN
        root_id = (SELECT repository.root_id
                   FROM repository
                   WHERE repository.repository_id = parent_repository_id);
+	   
+	   /* all descendants of a root will have branches which root has */
    END IF;
   
    /* creating a new repository */
@@ -409,11 +526,17 @@ BEGIN
             parent_repository_id,
             root_id);
   
+   IF (parent_repo_name ~ '^@.+$')
+   THEN
+	   /* create  branch 'master' for the root */
+	   INSERT INTO branch(branch_name, repository_id, creator_id)
+	   VALUES ('master', child_repository_id, 1);
+   END IF;
+  
    RETURN QUERY SELECT true AS is_created, CAST(repository_name || ' is created' AS VARCHAR) AS msg;
    RETURN;
 END;
 $$ LANGUAGE plpgsql;
-
 
 -----------------------------------------*    FUNCTION: create_file   *------------------------------------------
 -- create_file() function
@@ -571,6 +694,7 @@ AS $$
 DECLARE
    from_id INT;
    to_id INT;
+   parent_id INT;
 BEGIN
    /* checking for validity of owner_user_name */
    IF (check_user(owner_user_name) = false) THEN
@@ -598,7 +722,22 @@ BEGIN
        RETURN QUERY SELECT false AS given, CAST('repository of id = ' || repository_id || ' is not owned by ' || owner_user_name AS VARCHAR) AS msg;
        RETURN;
    END IF;
-  
+   
+   /* parent and child cannot have collabrator access and view access simultaneously*/
+   IF grant_or_update_access.access_type = CAST('viewer' AS VARCHAR)
+   THEN
+   		parent_id := (SELECT repository.parent_id
+					 FROM repository
+					 WHERE repository.repository_id = grant_or_update_access.repository_id);
+		IF parent_id IS NOT NULL
+		THEN
+			IF is_worker(to_id, parent_id) = true
+			THEN
+				RETURN QUERY SELECT false AS given, CAST('parent and child cannot have collabrator access and view access simultaneously ' AS VARCHAR) AS msg;
+		   	    RETURN;
+			END IF;
+		END IF;
+   END IF;
    /* check if the to_user_name has some access to repo */
    IF EXISTS (SELECT access.repository_id
               FROM access
@@ -615,15 +754,11 @@ BEGIN
        /* grant access */
        INSERT INTO access(repository_id, developer_id, access_type)
        VALUES  (grant_or_update_access.repository_id, to_id, CAST(grant_or_update_access.access_type AS access_flag));
-
-
+	   
        RETURN QUERY SELECT true AS given, CAST('Access granted!!' AS VARCHAR) AS msg;
    END IF;
 END;
 $$ LANGUAGE plpgsql;
-
-
-
 
 ------------------------------------------trigger-------------------------------------------------------------
 -- creating a trigger for the following scinerio                                                            --
@@ -632,12 +767,12 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION function_grant_or_update_access()                                                --
 RETURNS TRIGGER AS $$                                                                                       --
 DECLARE                                                                                                     --
-   children CURSOR FOR                                                                                     --
+   children CURSOR FOR                                                                                     
            (SELECT repository_id                          
             FROM  repository                              
             WHERE repository.parent_id = NEW.repository_id);
-   child RECORD;                                                                                           --
-   prev_access_type access_flag;                                                                           --
+   child RECORD;                                                                                          
+   prev_access_type access_flag;                                                                          
 BEGIN
    IF (TG_OP = 'INSERT') THEN
        /* for insert operation */
@@ -700,52 +835,287 @@ EXECUTE FUNCTION function_grant_or_update_access();                             
 --------------------------------------------------------------------------------------------------------------
 
 
------------------------------------------*        add_commit         *------------------------------------------------------
-CREATE OR REPLACE FUNCTION add_commit(repository_id INT, branch_id INT, user_name VARCHAR)                                --
+-----------------------------------------*    FUNCTION: create_branch   *------------------------------------------
+-- create_branch() function
+-- 		1) Only a worker of root can create_branch
+--		2) all branches of a root must have unique branch name
+DROP FUNCTION IF EXISTS create_branch;
+CREATE OR REPLACE FUNCTION create_branch(branch_name VARCHAR, repository_id INT, developer_user_name VARCHAR)
+RETURNS TABLE(created BOOLEAN, msg VARCHAR) AS $$
+DECLARE
+	root_id INT;
+	creator_id INT;
+BEGIN
+	/* checking validity of repository_id */
+	IF NOT EXISTS (SELECT repository.repository_id
+				   FROM repository
+				   WHERE repository.repository_id = create_branch.repository_id)
+	THEN
+		RETURN QUERY SELECT false as created, CAST(repository_id || ' is not valid !!' AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
+	
+	/* checking validity of developer user_name */
+	IF NOT EXISTS (SELECT developer.user_name
+				  FROM developer
+				  WHERE developer.user_name = developer_user_name)
+	THEN
+		RETURN QUERY SELECT false as created, CAST( developer_user_name || ' is not valid developer user_name!!' AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
+	
+	root_id := (SELECT repository.root_id
+			   	FROM repository
+			    WHERE repository.repository_id = create_branch.repository_id);
+	creator_id := (SELECT developer.developer_id
+				  FROM developer
+				  WHERE developer.user_name = developer_user_name);
+				  
+	/* Only a worker of root can create branch */
+	IF is_worker(creator_id, root_id) = false 
+	THEN
+		RETURN QUERY SELECT false as created, CAST( developer_user_name || ' is not worker of root!!' AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
+	
+	/* all branches of a root must have unique names */
+	IF EXISTS (SELECT branch.branch_name
+			  FROM branch
+			  WHERE branch.repository_id = root_id AND
+			        branch.branch_name = create_branch.branch_name)
+    THEN
+		RETURN QUERY SELECT false as created, CAST(branch_name || ' already exists' AS VARCHAR) AS msg;
+		RETURN;
+	END IF;
+	
+	/* inserting into branch table */
+	INSERT INTO branch(branch_name, repository_id, creator_id)
+	VALUES (create_branch.branch_name, root_id, creator_id);
+	
+	RETURN QUERY SELECT true as created, CAST(branch_name || ' created successfully!!' AS VARCHAR) AS msg;
+	RETURN;
+END;
+$$ LANGUAGE plpgsql;
+
+---------------------------------------* 	COMMIT    *--------------------------------------------
+
+---------* Helper function: add_file (adds a file into commit area, and creates a link new parent and new file) *---------
+CREATE OR REPLACE PROCEDURE add_file(child_file_id INT, new_parent_id INT)
+AS $$
+DECLARE
+	new_file_id INT;
+BEGIN
+	new_file_id := (SELECT COALESCE(MAX(commit_file.file_id), 0) FROM commit_file) + 1;
+	INSERT INTO commit_file(file_id, file_name, file_type, size, content, parent_repository_id, created_date_time,  last_update, creator_id)
+	SELECT new_file_id, file.file_name, file.file_type, file.size, file.content, add_file.new_parent_id, file.created_date_time, file.last_update, file.creator_id
+	FROM file
+	WHERE file.file_id = add_file.child_file_id;
+END;
+$$ LANGUAGE plpgsql;
+select * from file;
+---------* Helper function: add_to_commit_area (recursively adds descendants under a repository into commit area, and make appropriate connections) *---------
+CREATE OR REPLACE PROCEDURE add_to_commit_area(repository_id INT, new_repository_id INT, root_id INT, parent_id INT, commit_id INT)
+AS $$
+DECLARE
+	child_files CURSOR FOR
+		(SELECT file.*
+		 FROM file
+		 WHERE file.parent_repository_id = add_to_commit_area.repository_id);
+	child_repositries CURSOR FOR
+		(SELECT repository.*
+		 FROM repository
+		 WHERE repository.parent_id = add_to_commit_area.repository_id);
+    child_repo RECORD;
+	child_file RECORD;
+	new_child_id INT;
+BEGIN
+	-- child files  
+	OPEN child_files;
+	LOOP
+		FETCH child_files INTO child_file;
+		EXIT WHEN NOT FOUND;
+		CALL add_file(child_file.file_id, new_repository_id);
+	END LOOP;
+	CLOSE child_files;
+	
+	-- child repositries
+	OPEN child_repositries;
+	LOOP
+		FETCH child_repositries INTO child_repo;
+		EXIT WHEN NOT FOUND;
+		
+		-- new id for each child repository
+		new_child_id = (SELECT COALESCE(MAX(commit_repository.repository_id), 0) FROM commit_repository) + 1;
+		
+		-- copying the contents into commit_repository table
+		INSERT INTO commit_repository(repository_id, repository_name, created_date_time, owner_id, is_public, root_id, parent_id, creator_id, commit_id)
+		SELECT new_child_id, repository.repository_name, repository.created_date_time, repository.owner_id, repository.is_public, add_to_commit_area.root_id, add_to_commit_area.new_repository_id, repository.creator_id, add_to_commit_area.commit_id
+		FROM repository 
+		WHERE repository.repository_id = child_repo.repository_id;
+		
+		-- updating repository table
+		UPDATE repository
+		SET recent_commit_node = new_child_id
+		WHERE repository.repository_id =  child_repo.repository_id;
+		
+		-- recursive call
+		CALL add_to_commit_area(child_repo.repository_id, new_child_id, root_id, new_repository_id, commit_id);
+	END LOOP;
+	CLOSE child_repositries;
+	
+END;
+$$ LANGUAGE plpgsql;
+
+---------* API : add_commit *---------
+-- NOTE: branch_name is unique for a repository
+--       branches of a repository is same as branches of its root
+-- BUG : REMOVE root_id in commit area ???????????????????
+CREATE OR REPLACE FUNCTION add_commit(repository_id INT, branch_name VARCHAR, user_name VARCHAR, message VARCHAR)                            
 RETURNS TABLE(status BOOLEAN, msg VARCHAR)
 AS $$
 DECLARE
+   root_id INT;
    branch_id INT;
    developer_id INT;
+   new_commit_id INT;
+   new_repository_id INT;
+   iterator_parent_id INT;
+   iterator_child_id INT;
+   iterator_new_child_id INT;
+   iterator_commit_node INT;
 BEGIN
-   /* checking for valid user_name */
-   IF (check_user(user_name) == false)
+   /* checking for validity of user_name */
+   IF (check_user(user_name) = false)
    THEN
        RETURN QUERY SELECT false AS status, CAST('Invalid user_name' AS VARCHAR) AS msg;
        RETURN;
    END IF;
-  
-   /* checking for validity of branch id */
-   IF branch_id NOT IN (SELECT branch.branch_id FROM branch WHERE branch)
+   developer_id := (SELECT developer.developer_id FROM developer WHERE developer.user_name = add_commit.user_name);
+   
+   /* checking whether developeris worker */
+   IF is_worker(developer_id, repository_id) = false
    THEN
-       RETURN QUERY SELECT false AS status, CAST('Invalid branch' AS VARCHAR) AS msg;
+       RETURN QUERY SELECT false AS status, CAST(add_commit.user_name || ' is not worker' AS VARCHAR) AS msg;
        RETURN;
    END IF;
-  
+   root_id := (SELECT repository.root_id
+			  FROM repository
+			  WHERE repository.repository_id = add_commit.repository_id);
+
+	-- IF root_id is NULL, edge case need to handle --------------------?????????????
+	IF root_id IS NULL
+	THEN
+		-- edge case
+		-- repository is '@*' (special repository)
+		root_id := add_commit.repository_id;
+	END IF;
+
+   branch_id := (SELECT branch.branch_id
+				 FROM branch
+				 WHERE branch.branch_name = add_commit.branch_name AND
+				 	   branch.repository_id = root_id);
+					   
+   /* checking for validity of branch_name */
+   IF branch_id IS NULL
+   THEN
+       RETURN QUERY SELECT false AS status, CAST('Invalid branch ' || add_commit.branch_name AS VARCHAR) AS msg;
+       RETURN;
+   END IF;
+			   
+	new_commit_id := (SELECT COALESCE(MAX(commit.commit_id), 0) FROM commit) + 1;
+	INSERT INTO commit(commit_id, developer_id, branch_id, message, commit_date_time)
+	VALUES (new_commit_id, developer_id, branch_id, add_commit.message, localtimestamp);
+	
+    -- add the repository 
+	new_repository_id := (SELECT COALESCE(MAX(commit_repository.repository_id), 0) FROM commit_repository) + 1;
+
+	-- making new_repository_id as root
+	INSERT INTO commit_repository(repository_id, repository_name, created_date_time, owner_id, is_public, root_id, parent_id, creator_id, commit_id)
+	SELECT new_repository_id, repository.repository_name, repository.created_date_time, repository.owner_id, repository.is_public, new_repository_id, NULL, repository.creator_id, new_commit_id
+	FROM repository 
+	WHERE repository.repository_id = add_commit.repository_id;
+	
+	-- updating repository table
+	UPDATE repository
+	SET recent_commit_node = new_repository_id
+	WHERE repository.repository_id = add_commit.repository_id;
+	
+	-- arg1: (repository_id) original repository
+	-- arg2: (new_repository_id) id in commit area
+	-- arg3: (new_repository_id) id of root
+	-- arg4: (null) parent of root is null
+	-- arg5: (new_commit_id) commit_id of commit
+	/* All descendents of repository_id are copied to commit area */
+    CALL add_to_commit_area(add_commit.repository_id, new_repository_id, new_repository_id, null, new_commit_id);
+	
+	iterator_parent_id 		:= (SELECT repository.parent_id FROM repository WHERE repository.repository_id = add_commit.repository_id);
+	iterator_child_id 		:= add_commit.repository_id;
+	iterator_new_child_id 	:= new_repository_id;
+	LOOP
+		IF iterator_parent_id IS NULL
+		THEN
+			-- base case 1)
+			-- iterator_child is special repository '@*'
+			EXIT;
+		END IF;
+		
+		iterator_commit_node := (SELECT repository.recent_commit_node
+								 FROM repository
+								 WHERE repository.repository_id = iterator_parent_id);
+		IF iterator_commit_node IS NOT NULL 
+		THEN
+			-- base_case 2)
+			-- parent is committed some time in the past
+			-- smart copying !!
+			UPDATE commit_repository
+			SET parent_id = iterator_commit_node
+			WHERE commit_repository.repository_id = iterator_new_child_id;
+			
+			EXIT;
+		END IF;
+		
+		-- parent is not committed some time in the past
+		-- so commit it now!!
+		new_repository_id := (SELECT COALESCE(MAX(commit_repository.repository_id), 0) FROM commit_repository) + 1;
+		
+		-- copying parent 
+		INSERT INTO commit_repository(repository_id, repository_name, created_date_time, owner_id, is_public, parent_id, creator_id, commit_id)
+		SELECT new_repository_id, repository.repository_name, repository.created_date_time, repository.owner_id, repository.is_public, NULL, repository.creator_id, new_commit_id
+		FROM repository 
+		WHERE repository.repository_id = iterator_parent_id;
+		
+		-- changing links
+		UPDATE commit_repository
+		SET parent_id = new_repository_id
+		WHERE commit_repository.repository_id = iterator_new_child_id;
+		
+		-- changing iterators
+		iterator_child_id 		:= iterator_parent_id;
+		iterator_new_child_id 	:= new_repository_id;
+		iterator_parent_id 		:= (SELECT repository.parent_id FROM repository WHERE repository.repository_id = iterator_parent_id);
+	END LOOP;
+	
+   RETURN QUERY SELECT true AS status, CAST('Data committed!! to commit_id ' || new_commit_id AS VARCHAR) AS msg;
+   RETURN;	
 END;
 $$ LANGUAGE plpgsql;
------------------------------------------------------------------------------------------------------------------------------
-
-
-
+------------------------------------------------------------------------------------------------------------------------
 
 -----------------------------------------*      test area start      *-----------------------------------------
-
-
 SELECT create_user('_sandeep_', 'sandeep reddy', '112101011@smail.iitpkd.ac.in', '2122');
 SELECT * FROM developer;
+SELECT * FROM repository;
+SELECT * FROM branch;
 SELECT login_user('_sandeep_', '2122');
 select create_repo('DBMS', 1, '_sandeep_');
 select create_repo('Compilers', 1, '_sandeep_');
 select create_repo('OELP', 1, '_sandeep_');
-
 
 select create_repo('Lab1', 2, '_sandeep_');
 select create_repo('Lab2', 2, '_sandeep_');
 select create_repo('Lab1', 3, '_sandeep_');
 select create_repo('Lab2', 3, '_sandeep_');
 select create_repo('References', 7, '_sandeep_');
-
 
 -- creating files
 SELECT create_file('readme', 'md', 'Name: Chekkala Sandeep Reddy <br/> Roll Number: 112101011 <br/> ', 2, '_sandeep_');
@@ -757,16 +1127,13 @@ SELECT create_file('code', 'sql', '-- Find pairs of films whose lengths are equa
                                    INNER JOIN  film as f2
                                         ON f1.film_id > f2.film_id AND f1.length = f2.length
                                    ORDER BY f1.length; ', 6, '_sandeep_');
-SELECT create_file('compiler', 'l', 'ffdfdfdffddf ', 7, '_sandeep_');
-SELECT create_file('compiler', 'y', ' ', 7, '_sandeep_');
+SELECT create_file('compiler', 'l', ' // lex code for lab1 ', 7, '_sandeep_');
+SELECT create_file('compiler', 'y', ' // yass code for lab1 ', 7, '_sandeep_');
 SELECT create_file('compiler', 'l', ' ', 8, '_sandeep_');
 SELECT create_file('compiler', 'y', ' ', 8, '_sandeep_');
-
+SELECT create_file('skip_list', 'c', ' // lex code ', 4, '_sandeep_');
 
 SELECT * FROM repository;
-
-
-
 
 /* making Compilers repository private */
 SELECT make_private(3, '_sandeep_');
@@ -780,35 +1147,63 @@ SELECT * FROM repository;
 
 
 -- /* granting access to _manish_ */
-SELECT * FROM access;
 -- beauty of octopus is that, you can grant access to any repository (need not be root)
 -- github doesn't allow it !!
-SELECT * FROM access; give access to any sub-repositry, and not access to only repositries directly parented by developer
-
+SELECT * FROM access; 
 
 SELECT grant_or_update_access('_sandeep_', 7, '_manish_', 'collaborator');
 
-
-SELECT grant_or_update_access('_sandeep_', 7, '_manish_', 'viewer');
-SELECT * FROM access;
-
-
 SELECT grant_or_update_access('_sandeep_', 3, '_manish_', 'collaborator');
+
+-- the following gives error message (expected)
+SELECT grant_or_update_access('_sandeep_', 7, '_manish_', 'viewer');
+
+
 SELECT * FROM access;
 
+-- creating a branch
+-- CREATE OR REPLACE FUNCTION create_branch(branch_name VARCHAR, repository_id INT, developer_user_name VARCHAR)
+SELECT create_branch('feature', 7, '_sandeep_');
+SELECT * FROM branch;
 
+-- commiting
+-- CREATE OR REPLACE FUNCTION add_commit(repository_id INT, branch_name VARCHAR, user_name VARCHAR, message VARCHAR)                            
 
+-- invalid user name
+SELECT add_commit(4, 'master', '_kdfmfdkm_', 'commiting oelp');
 
+-- developer is not worker
+SELECT add_commit(4, 'master', '_manish_', 'commiting oelp');
+
+-- Invalid branch
+SELECT add_commit(4, 'feature', '_sandeep_', 'commiting oelp');
+
+-- valid arguments
+SELECT add_commit(4, 'master', '_sandeep_', 'commiting oelp');
+
+SELECT add_commit(3, 'feature', '_manish_', 'commiting codes');
+
+SELECT add_commit(8, 'feature', '_manish_', 'commting only Lab2');
+
+SELECT add_commit(3, 'master', '_sandeep_', 'commiting all');
+
+SELECT * FROM repository;
+
+SELECT * FROM commit_repository;
+SELECT * FROM commit;
+SELECT * FROM commit_file;
+SELECT * FROM repository;
+
+-- adding comments
+
+-- adding tags
 
 
 -----------------------------------------*       test area end       *---------------------------------------------------------
--- -- procedure add_comment
+-- -- FUNCTION add_comment
 -- --        adds comment to the comment_table provided if the given inputs repository_id, user_name are valid
--- -- NOTE: 1) We cannot take only repository_name as input parameter for adding comment because there could be multiple repositires with same repository_name
--- --        2) The current database design supports that any user of OCTOPUS can comment on a repository, if the repository is public (or) he is the owner of the repository (or) collaborator of the repository (or) has access (view basically) to the repository.
--- --           (that is having at least view access)
--- DROP PROCEDURE IF EXISTS add_comment;
--- CREATE OR REPLACE PROCEDURE add_comment(owner_user_name VARCHAR, repository_name VARCHAR, user_name VARCHAR(100), message VARCHAR(100))
+-- DROP FUNCTION IF EXISTS add_comment;
+-- CREATE OR REPLACE FUNCTION add_comment(owner_user_name VARCHAR, repository_name VARCHAR, user_name VARCHAR(100), message VARCHAR(100))
 -- AS $$
 -- DECLARE
 -- repo_id INT;
@@ -851,35 +1246,3 @@ SELECT * FROM access;
 --  END IF;
 -- END;
 -- $$ LANGUAGE plpgsql;
-
-
--- -- 5) comment table
--- CREATE TABLE comment(
---  repository_id INT,
---  developer_id INT,
---  comment_id SERIAL,
---  message VARCHAR(100),
---  comment_date_time timestamp,
-  
---  PRIMARY KEY(repository_id, developer_id, comment_id),
---  FOREIGN KEY (repository_id)
---  REFERENCES repository(repository_id) ON DELETE CASCADE,
---  FOREIGN KEY (developer_id)
---  REFERENCES developer(developer_id) ON DELETE CASCADE
--- );
-
-
--- -- 9) tag table
--- CREATE TABLE tag(
---  repository_id INT,
---  developer_id INT,
---  tag_id INT,
---  commit_id INT,
---  tag_name VARCHAR(50) NOT NULL,
---  tag_date_time timestamp,
-  
---  PRIMARY KEY(repository_id, developer_id, tag_id),
---  FOREIGN KEY (repository_id) REFERENCES repository(repository_id),
---  FOREIGN KEY (developer_id) REFERENCES developer(developer_id),
---  FOREIGN KEY (commit_id) REFERENCES commit(commit_id)
--- );
