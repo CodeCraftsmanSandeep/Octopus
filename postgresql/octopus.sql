@@ -1,6 +1,4 @@
-
-
-
+-- transfer ownership function
 -- view for all commits to a branch
 -- -- upload_file()  
 -- -- branch table   
@@ -15,6 +13,8 @@
 -- -- delete account()
 -- request_access()
 
+
+DROP TABLE IF EXISTS commit_file CASCADE;
 DROP TYPE IF EXISTS access_flag CASCADE;
 DROP EXTENSION IF EXISTS pgcrypto;
 DROP TABLE IF EXISTS commit CASCADE;
@@ -24,7 +24,7 @@ DROP TABLE IF EXISTS comment CASCADE;
 DROP TABLE IF EXISTS collaborate CASCADE;
 DROP TABLE IF EXISTS access CASCADE;
 DROP TABLE IF EXISTS fork CASCADE;
-
+DROP TABLE IF EXISTS commit_repository CASCADE;
 
 DROP TABLE IF EXISTS developer CASCADE;
 DROP TABLE IF EXISTS repository CASCADE;
@@ -33,6 +33,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- The crypt function is a one-way hashing function, meaning it transforms data into a fixed-length string
 -- (hash) that cannot be reversed to recover the original data.
 
+-------------- all tables -------------
 
 --------------------------------------------------------------------------
 CREATE TABLE developer(                                                 --    
@@ -141,8 +142,8 @@ CREATE TABLE access(														--
 -- ||||||   |____  |___\| |    |  |    |  __|__	   |		/       \ |      \  |_____	/       \	     ||||||
 -- ||||||																					     		 ||||||
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
-																										 ------
--- commit area includes the following tables:															 ------	
+
+-- commit area includes the following tables:															 
 --      1) commit_repository												
 --      2) commit_file 
 --		3) branch 
@@ -150,7 +151,7 @@ CREATE TABLE access(														--
 
 -- branch is a weak entity
 -- branch does not exist if repository for which developer is direct parent does not exists
--- there could be multiple branches with same repository and developer_id
+-- there could be multiple branches for the same repository
 DROP TABLE IF EXISTS branch CASCADE;
 CREATE TABLE branch(
    branch_id SERIAL PRIMARY KEY,
@@ -161,23 +162,19 @@ CREATE TABLE branch(
    FOREIGN KEY (repository_id)
    REFERENCES repository(repository_id) ON DELETE CASCADE,
    FOREIGN KEY (creator_id)
-   REFERENCES developer(developer_id) 
+   REFERENCES developer(developer_id) ON DELETE SET NULL
 );
 
 -- commit table
--- a commit is uniquely identified by
---          branch
---          developer
---          time (at different times same developer can commit to same branch in same repository)
 CREATE TABLE commit(
    commit_id INT PRIMARY KEY,
-   developer_id INT,                   /* developer who committed  (worker)                    */
-   branch_id INT NOT NULL,             /* this points to branch to which a commit belongs to   */
+   developer_id INT,                   /* developer who committed  (worker) */
+   branch_id INT NOT NULL,             /* corresponding branch              */
    message VARCHAR(100) NOT NULL,
    commit_date_time timestamp,
   
    FOREIGN KEY (developer_id)
-   REFERENCES developer(developer_id),
+   REFERENCES developer(developer_id) ON DELETE SET NULL,
    FOREIGN KEY (branch_id)
    REFERENCES branch (branch_id) ON DELETE CASCADE														
 );		
@@ -187,14 +184,12 @@ CREATE TABLE commit(
 -- a worker can commit
 --          1) a owner is a worker
 --          2) a collabarator is a worker
-DROP TABLE IF EXISTS commit_repository CASCADE;
 CREATE TABLE commit_repository(
    repository_id INT PRIMARY KEY,                                        --
    repository_name VARCHAR(100) NOT NULL,                                --
    created_date_time timestamp,                                          --
    owner_id INT NOT NULL,                                                --
    is_public BOOLEAN DEFAULT true,                                       --
-   root_id INT,                        /* root of the tree   */          --
    parent_id INT,                      /* parent of the repo */          --
    creator_id INT NOT NULL,            /* worker who created */          --
    commit_id INT NOT NULL,                                               --
@@ -202,17 +197,14 @@ CREATE TABLE commit_repository(
    FOREIGN KEY (owner_id)                                                --
    REFERENCES developer(developer_id) ON DELETE CASCADE,                 --
    FOREIGN KEY (creator_id)                                              --
-   REFERENCES developer(developer_id),  
-   FOREIGN KEY (root_id)                                                 --
-   REFERENCES commit_repository(repository_id),                          --
+   REFERENCES developer(developer_id) ON DELETE SET NULL,				 --
    FOREIGN KEY (parent_id)                                               --
-   REFERENCES commit_repository(repository_id),                          
-   FOREIGN KEY (commit_id)
-   REFERENCES commit(commit_id) ON DELETE CASCADE
+   REFERENCES commit_repository(repository_id) ON DELETE CASCADE,        --                  
+   FOREIGN KEY (commit_id)												 --
+   REFERENCES commit(commit_id) ON DELETE CASCADE						 --
 );
 
--- commit_file_table
-DROP TABLE IF EXISTS commit_file CASCADE;
+-- commit_file
 CREATE TABLE commit_file(
    file_id SERIAL PRIMARY KEY,
    file_name VARCHAR(50) NOT NULL,
@@ -227,84 +219,24 @@ CREATE TABLE commit_file(
    FOREIGN KEY(parent_repository_id)
    REFERENCES commit_repository(repository_id) ON DELETE CASCADE,
    FOREIGN KEY(creator_id)
-   REFERENCES developer(developer_id)
+   REFERENCES developer(developer_id) ON DELETE SET NULL
 );
+
+ALTER TABLE repository ADD CONSTRAINT fk_constraint FOREIGN KEY(recent_commit_node) REFERENCES commit_repository(repository_id);
 
 -- tag table
 CREATE TABLE tag(
- repository_id INT,
- developer_id INT,
- tag_id INT,
- commit_id INT,
- tag_name VARCHAR(50) NOT NULL,
- tag_date_time timestamp,
-  
- PRIMARY KEY(repository_id, developer_id, tag_id),
- FOREIGN KEY (repository_id) REFERENCES repository(repository_id),
- FOREIGN KEY (developer_id) REFERENCES developer(developer_id),
- FOREIGN KEY (commit_id) REFERENCES commit(commit_id)
-);
-
--- -- branch_head
--- --		for each head, it has corresponding head commit id
--- -- 		head of a branch ~ latest commit to a branch
--- -- branch_head is used very frequently, so the one of the optimistic options to store as physical table
--- -- NOTE: we can also create view for it, but it is ineffecient because for each branch you need to sort all commits made to the branch 
--- -- 		 based on committed time and then take the latest commit (not worth!!)
--- -- you cannot add head_id feild in branch because it will create cyclicity between branch and commit
--- DROP TABLE IF EXISTS branch_head;
--- CREATE TABLE branch_head(
--- 	branch_id INT PRIMARY KEY,
--- 	head_id INT,
+ 	repository_id INT,
+ 	tag_name VARCHAR(50) NOT NULL,
+	developer_id INT,
+ 	commit_id INT,
+ 	tag_date_time timestamp,
 	
--- 	FOREIGN KEY (branch_id)
--- 	REFERENCES branch(branch_id) ON DELETE CASCADE,
--- 	FOREIGN KEY (head_id)
--- 	REFERENCES commit(commit_id)
--- );	
-
----------------------- view for root of each commit ------------------------------
-CREATE OR REPLACE VIEW commit_root AS
-SELECT commit.commit_id AS commit_id, commit_repository.repository_id AS commit_root_id
-FROM commit JOIN commit_repository using(commit_id)
-WHERE commit_repository.repository_id = commit_repository.root_id;
-
-
------------------------------------------------------------------------------------------
--- Trigger for the following scienerio
---			whenever a branch is created, a tuple should should be created in branch_head
---			whenever a commit is added, the tuple in branch_head should be updated
--- DROP FUNCTION IF EXISTS function_branch_creation;
--- CREATE OR REPLACE FUNCTION function_branch_creation()
--- RETURNS TRIGGER AS $$
--- BEGIN
--- 	IF (TG_TABLE_NAME = 'branch') 
--- 	THEN
--- 		INSERT INTO branch_head(branch_id)
--- 		VALUES (NEW.branch_id);
--- 	ELSIF (TG_TABLE_NAME = 'commit')
--- 	THEN
--- 		UPDATE branch_head
--- 		SET branch_head.head_id = NEW.commit_id
--- 		WHERE branch_head.branch_id = NEW.branch_id;
--- 	END IF;
--- 	RETURN NEW;	
--- END;
--- $$ LANGUAGE plpgsql;
-
--- DROP TRIGGER IF EXISTS trigger_branch_creation ON branch;
--- CREATE OR REPLACE TRIGGER trigger_branch_creation
--- AFTER INSERT ON branch
--- FOR EACH ROW 
--- EXECUTE FUNCTION function_branch_creation();
-
--- DROP TRIGGER IF EXISTS trigger_commit_addition ON commit;
--- CREATE OR REPLACE TRIGGER trigger_commit_addition
--- BEFORE INSERT ON commit
--- FOR EACH ROW 
--- EXECUTE FUNCTION function_branch_creation();
-
----------------------------------------------------------------------------------------------------------------
+	PRIMARY KEY(repository_id, tag_name), /* for a repository tag name should be unique */
+ 	FOREIGN KEY (repository_id) REFERENCES repository(repository_id) ON DELETE CASCADE,
+ 	FOREIGN KEY (developer_id) REFERENCES developer(developer_id),
+ 	FOREIGN KEY (commit_id) REFERENCES commit(commit_id)
+);
 
 -----------------------------------------* END OF CREATION OF TABLES *------------------------------------------
 
@@ -913,8 +845,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 select * from file;
+
 ---------* Helper function: add_to_commit_area (recursively adds descendants under a repository into commit area, and make appropriate connections) *---------
-CREATE OR REPLACE PROCEDURE add_to_commit_area(repository_id INT, new_repository_id INT, root_id INT, parent_id INT, commit_id INT)
+CREATE OR REPLACE PROCEDURE add_to_commit_area(repository_id INT, new_repository_id INT, parent_id INT, commit_id INT)
 AS $$
 DECLARE
 	child_files CURSOR FOR
@@ -948,8 +881,8 @@ BEGIN
 		new_child_id = (SELECT COALESCE(MAX(commit_repository.repository_id), 0) FROM commit_repository) + 1;
 		
 		-- copying the contents into commit_repository table
-		INSERT INTO commit_repository(repository_id, repository_name, created_date_time, owner_id, is_public, root_id, parent_id, creator_id, commit_id)
-		SELECT new_child_id, repository.repository_name, repository.created_date_time, repository.owner_id, repository.is_public, add_to_commit_area.root_id, add_to_commit_area.new_repository_id, repository.creator_id, add_to_commit_area.commit_id
+		INSERT INTO commit_repository(repository_id, repository_name, created_date_time, owner_id, is_public, parent_id, creator_id, commit_id)
+		SELECT new_child_id, repository.repository_name, repository.created_date_time, repository.owner_id, repository.is_public, add_to_commit_area.new_repository_id, repository.creator_id, add_to_commit_area.commit_id
 		FROM repository 
 		WHERE repository.repository_id = child_repo.repository_id;
 		
@@ -959,7 +892,7 @@ BEGIN
 		WHERE repository.repository_id =  child_repo.repository_id;
 		
 		-- recursive call
-		CALL add_to_commit_area(child_repo.repository_id, new_child_id, root_id, new_repository_id, commit_id);
+		CALL add_to_commit_area(child_repo.repository_id, new_child_id,  new_repository_id, commit_id);
 	END LOOP;
 	CLOSE child_repositries;
 	
@@ -969,7 +902,6 @@ $$ LANGUAGE plpgsql;
 ---------* API : add_commit *---------
 -- NOTE: branch_name is unique for a repository
 --       branches of a repository is same as branches of its root
--- BUG : REMOVE root_id in commit area ???????????????????
 CREATE OR REPLACE FUNCTION add_commit(repository_id INT, branch_name VARCHAR, user_name VARCHAR, message VARCHAR)                            
 RETURNS TABLE(status BOOLEAN, msg VARCHAR)
 AS $$
@@ -1002,7 +934,7 @@ BEGIN
 			  FROM repository
 			  WHERE repository.repository_id = add_commit.repository_id);
 
-	-- IF root_id is NULL, edge case need to handle --------------------?????????????
+	-- IF root_id is NULL, edge case ---
 	IF root_id IS NULL
 	THEN
 		-- edge case
@@ -1030,8 +962,8 @@ BEGIN
 	new_repository_id := (SELECT COALESCE(MAX(commit_repository.repository_id), 0) FROM commit_repository) + 1;
 
 	-- making new_repository_id as root
-	INSERT INTO commit_repository(repository_id, repository_name, created_date_time, owner_id, is_public, root_id, parent_id, creator_id, commit_id)
-	SELECT new_repository_id, repository.repository_name, repository.created_date_time, repository.owner_id, repository.is_public, new_repository_id, NULL, repository.creator_id, new_commit_id
+	INSERT INTO commit_repository(repository_id, repository_name, created_date_time, owner_id, is_public,  parent_id, creator_id, commit_id)
+	SELECT new_repository_id, repository.repository_name, repository.created_date_time, repository.owner_id, repository.is_public,  NULL, repository.creator_id, new_commit_id
 	FROM repository 
 	WHERE repository.repository_id = add_commit.repository_id;
 	
@@ -1042,11 +974,10 @@ BEGIN
 	
 	-- arg1: (repository_id) original repository
 	-- arg2: (new_repository_id) id in commit area
-	-- arg3: (new_repository_id) id of root
-	-- arg4: (null) parent of root is null
-	-- arg5: (new_commit_id) commit_id of commit
+	-- arg3: (null) parent of root is null
+	-- arg4: (new_commit_id) commit_id of commit
 	/* All descendents of repository_id are copied to commit area */
-    CALL add_to_commit_area(add_commit.repository_id, new_repository_id, new_repository_id, null, new_commit_id);
+    CALL add_to_commit_area(add_commit.repository_id, new_repository_id,  null, new_commit_id);
 	
 	iterator_parent_id 		:= (SELECT repository.parent_id FROM repository WHERE repository.repository_id = add_commit.repository_id);
 	iterator_child_id 		:= add_commit.repository_id;
@@ -1246,3 +1177,84 @@ SELECT * FROM repository;
 --  END IF;
 -- END;
 -- $$ LANGUAGE plpgsql;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---------------------------------------
+
+-- -- branch_head
+-- --		for each head, it has corresponding head commit id
+-- -- 		head of a branch ~ latest commit to a branch
+-- -- branch_head is used very frequently, so the one of the optimistic options to store as physical table
+-- -- NOTE: we can also create view for it, but it is ineffecient because for each branch you need to sort all commits made to the branch 
+-- -- 		 based on committed time and then take the latest commit (not worth!!)
+-- -- you cannot add head_id feild in branch because it will create cyclicity between branch and commit
+-- DROP TABLE IF EXISTS branch_head;
+-- CREATE TABLE branch_head(
+-- 	branch_id INT PRIMARY KEY,
+-- 	head_id INT,
+	
+-- 	FOREIGN KEY (branch_id)
+-- 	REFERENCES branch(branch_id) ON DELETE CASCADE,
+-- 	FOREIGN KEY (head_id)
+-- 	REFERENCES commit(commit_id)
+-- );	
+
+---------------------- view for root of each commit ------------------------------
+CREATE OR REPLACE VIEW commit_root AS
+SELECT commit.commit_id AS commit_id, commit_repository.repository_id AS commit_root_id
+FROM commit JOIN commit_repository using(commit_id)
+WHERE commit_repository.repository_id = commit_repository.root_id;
+
+
+-----------------------------------------------------------------------------------------
+-- Trigger for the following scienerio
+--			whenever a branch is created, a tuple should should be created in branch_head
+--			whenever a commit is added, the tuple in branch_head should be updated
+-- DROP FUNCTION IF EXISTS function_branch_creation;
+-- CREATE OR REPLACE FUNCTION function_branch_creation()
+-- RETURNS TRIGGER AS $$
+-- BEGIN
+-- 	IF (TG_TABLE_NAME = 'branch') 
+-- 	THEN
+-- 		INSERT INTO branch_head(branch_id)
+-- 		VALUES (NEW.branch_id);
+-- 	ELSIF (TG_TABLE_NAME = 'commit')
+-- 	THEN
+-- 		UPDATE branch_head
+-- 		SET branch_head.head_id = NEW.commit_id
+-- 		WHERE branch_head.branch_id = NEW.branch_id;
+-- 	END IF;
+-- 	RETURN NEW;	
+-- END;
+-- $$ LANGUAGE plpgsql;
+
+-- DROP TRIGGER IF EXISTS trigger_branch_creation ON branch;
+-- CREATE OR REPLACE TRIGGER trigger_branch_creation
+-- AFTER INSERT ON branch
+-- FOR EACH ROW 
+-- EXECUTE FUNCTION function_branch_creation();
+
+-- DROP TRIGGER IF EXISTS trigger_commit_addition ON commit;
+-- CREATE OR REPLACE TRIGGER trigger_commit_addition
+-- BEFORE INSERT ON commit
+-- FOR EACH ROW 
+-- EXECUTE FUNCTION function_branch_creation();
+
+---------------------------------------------------------------------------------------------------------------
