@@ -13,7 +13,6 @@
 -- -- delete account()
 -- request_access()
 
-
 DROP TABLE IF EXISTS commit_file CASCADE;
 DROP TYPE IF EXISTS access_flag CASCADE;
 DROP EXTENSION IF EXISTS pgcrypto;
@@ -49,27 +48,6 @@ CREATE TABLE developer(                                                 --
 );                                                      				--
 --------------------------------------------------------------------------
 
--- DROP INDEX IF EXISTS index_user_name;
--- CREATE INDEX index_user_name ON developer using BTREE(user_name);
-
--- EXPLAIN ANALYSE (SELECT * FROM developer WHERE developer.user_name = '_sandeep_');
-
-
--- DROP INDEX IF EXISTS index_repository_id;
--- CREATE INDEX index_repository_id ON repository(repository_id);
-
--- DROP INDEX IF EXISTS sort_time;
--- CREATE INDEX sort_time ON commit(commit_date_time asc);
-
--- EXPLAIN ANALYSE (SELECT commit.branch_id FROM commit order by commit_date_time);
--- EXPLAIN ANALYSE (SELECT repository_id FROM repository WHERE repository.repository_id = 2);
-
-
-
-
-
--- '_octopus_' will be present in developer table (super developer)
---  developer_id 1 is reserved for '_octopus_'
 INSERT INTO developer(user_name, name, email, encrypted_password)
 VALUES  ('_octopus_', 'Super developer', 'octopus2024@gmail.com', (crypt('octopus', '$2024$DBMS$fixedsalt')));
 
@@ -95,6 +73,24 @@ CREATE TABLE repository(                                                 --
    REFERENCES repository(repository_id) ON DELETE CASCADE                --
 );                                                                       --
 ---------------------------------------------------------------------------
+
+
+DROP FUNCTION IF EXISTS function_num_repos;
+CREATE OR REPLACE FUNCTION function_num_repos()
+RETURNS TRIGGER AS $$
+BEGIN
+	UPDATE developer
+	SET num_repos = num_repos + 1
+	WHERE developer.developer_id = NEW.owner_id;
+   	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_num_repos ON repository;
+CREATE OR REPLACE TRIGGER trigger_num_repos
+BEFORE INSERT ON repository
+FOR EACH ROW
+EXECUTE FUNCTION function_num_repos();
 
 -- owner of a file is the owner of its parent repository
 -- creater of the file is any worker (may not be active worker)
@@ -484,10 +480,10 @@ BEGIN
 	   VALUES ('master', child_repository_id, 1);
    END IF;
    
-   /* Updating number of repositires of owner */
-   UPDATE developer
-   SET num_repos = num_repos + 1
-   WHERE developer.developer_id = owner_id;
+--    /* Updating number of repositires of owner */
+--    UPDATE developer
+--    SET num_repos = num_repos + 1
+--    WHERE developer.developer_id = owner_id;
    
    RETURN QUERY SELECT true AS is_created, CAST(repository_name || ' is created' AS VARCHAR) AS msg;
    RETURN;
@@ -558,75 +554,97 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-
--- function make_private()
+-- function change_view()
 --      if repository is made private then with the help of trigger, all its descendents are also made private
--- subtle point: Can any repository made private?? or only repostries who are directly owned ny developer can be made private ?????
-CREATE OR REPLACE FUNCTION make_private(repository_id INT, owner_user_name VARCHAR)
-RETURNS BOOLEAN
+-- subtle point: Can any repository made private?? or only repostries who are directly owned by developer can be made private ?????
+-- ans:			 Any repository can be made private!!
+CREATE OR REPLACE FUNCTION change_view(repository_id INT, owner_user_name VARCHAR, is_public BOOLEAN)
+RETURNS TABLE (is_changed BOOLEAN, msg VARCHAR)
 AS $$
 DECLARE
 owner_id INT;
-repository_name VARCHAR;
+repo_parent_id INT;
 BEGIN
    /* checking existence of owner_user_name */
    IF owner_user_name not in (SELECT user_name FROM developer)
    THEN
-       RAISE NOTICE '% is not present', owner_user_name;
-       RETURN false;
+       RETURN QUERY SELECT false AS is_changed, CAST(owner_user_name || ' not found' AS VARCHAR) AS msg;
+	   RETURN;
    END IF;
    owner_id := (SELECT developer.developer_id FROM developer WHERE developer.user_name = owner_user_name);
   
    /* checking existence of repository_id */
    IF repository_id not in (SELECT repository.repository_id FROM repository)
    THEN
-       RAISE NOTICE 'repository with id = % is not present', repository_id;
-       RETURN false;
+   	   RETURN QUERY SELECT false AS is_changed, CAST('Invalid repository_id' AS VARCHAR) AS msg;
+	   RETURN;
    END IF;
-   repository_name := (SELECT repository.repository_name FROM repository WHERE repository.repository_id = make_private.repository_id);
-  
-   /* checking ownership of owner_user_name */
-   IF owner_id <> (SELECT repository.owner_id FROM repository WHERE repository.repository_id = make_private.repository_id)
+   
+   -- checking ownership of owner_user_name 
+   IF owner_id <> (SELECT repository.owner_id FROM repository WHERE repository.repository_id = change_view.repository_id)
    THEN
-       RAISE NOTICE '% is not owner of %(ID = %)', owner_user_name, repository_name, repository_id;
-       RETURN false;
+   	   RETURN QUERY SELECT false AS is_changed, CAST(owner_user_name || ' is not owner of repository' AS VARCHAR) AS msg;
+	   RETURN;
    END IF;
-  
-   /* making repository private */
+   
+   repo_parent_id := (SELECT repository.parent_id
+				FROM repository
+				WHERE repository.repository_id = change_view.repository_id);
+   
+   -- parent and child cannot be private and public respectively at the same time
+   IF ((SELECT repository.is_public FROM repository WHERE repository.repository_id = repo_parent_id) = false) and (change_view.is_public = true)
+   THEN
+   	   RETURN QUERY SELECT false AS is_changed, CAST('parent and child cannot be private and public respectively at the same time' AS VARCHAR) AS msg;
+	   RETURN;
+   END IF;
+   
+   -- modifying is_public flag
    UPDATE repository
-   SET is_public = false
-   WHERE repository.repository_id = make_private.repository_id;   
+   SET is_public = change_view.is_public
+   WHERE repository.repository_id = change_view.repository_id;   
+   
    RAISE NOTICE 'successfully made private';
-   RETURN true;
+   RETURN QUERY SELECT true AS is_changed, CAST('Successful' AS VARCHAR) AS msg;
 END;
 $$ LANGUAGE plpgsql;
 
 -- creating a trigger for the following scinerio
---          whenever a repository is made private
---          then all its descendant repositries are also made private with the help of trigger
--- recursive in natrue
-CREATE OR REPLACE FUNCTION procedure_make_private()
+--          whenever a repository is made private/public
+--          then all its descendant repositries are also made private/public with the help of recursive trigger
+CREATE OR REPLACE FUNCTION function_change_view()
 RETURNS TRIGGER AS $$
+DECLARE
+	child_repositries CURSOR FOR
+		(SELECT repository.*
+		 FROM repository
+		 WHERE repository.parent_id = NEW.repository_id);
+	child_repo RECORD;
 BEGIN
-   IF NOT NEW.is_public THEN
-       /* Make descendent repositories private */
-       UPDATE repository
-       SET is_public = false
-       WHERE repository_id IN (
-           SELECT repository_id
-           FROM repository
-           WHERE repository.parent_id = NEW.repository_id);
-   END IF;
-   RETURN NEW;
+	IF NEW.is_public = OLD.is_public
+	THEN
+		RETURN NEW;
+	END IF;
+	
+	-- child repositries
+	OPEN child_repositries;
+	LOOP
+		FETCH child_repositries INTO child_repo;
+		EXIT WHEN NOT FOUND;
+		
+        UPDATE repository
+        SET is_public = NEW.is_public
+       	WHERE repository.repository_id  = child_repo.repository_id;
+		
+	END LOOP;
+	CLOSE child_repositries;
+	RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-
-CREATE OR REPLACE TRIGGER trigger_make_private
+CREATE OR REPLACE TRIGGER trigger_change_view
 BEFORE UPDATE OF is_public ON repository
 FOR EACH ROW
-EXECUTE FUNCTION procedure_make_private();
-
+EXECUTE FUNCTION function_change_view();
 
 --------------------------------------------* API : read_file *-----------------------------------------------------------
 CREATE OR REPLACE FUNCTION read_file(parent_repository_id INT, file_name VARCHAR, developer_user_name VARCHAR)
@@ -777,15 +795,15 @@ BEGIN
                WHERE access.repository_id = child.repository_id and
                      access.developer_id = NEW.developer_id;
            END LOOP;
-           CLOSE children;                                                                                 --
-   END IF;                                                                                                 --
-   /* Thanks to recursion !! */                                                                            --
-   RETURN NEW;                                                                                             --
-END;                                                                                                   --
-$$ LANGUAGE plpgsql;                                                                                        --
-                                                                                                           --
-CREATE OR REPLACE TRIGGER trigger_grant_or_update_access                                                    --
-BEFORE INSERT OR UPDATE ON access                                                                           --
+           CLOSE children;                                                                          
+   END IF;                                                                                          
+   /* Thanks to recursion !! */                                                                     
+   RETURN NEW;                                                                                      
+END;                                                                                                
+$$ LANGUAGE plpgsql;                                                                                
+                                                                                                    
+CREATE OR REPLACE TRIGGER trigger_grant_or_update_access                                            
+BEFORE INSERT OR UPDATE ON access                                                                   
 FOR EACH ROW                                                                                                --
 EXECUTE FUNCTION function_grant_or_update_access();                                                         --
 --------------------------------------------------------------------------------------------------------------
@@ -1139,6 +1157,26 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+--------------------------------- indices ---------------------------------  
+-- DROP INDEX IF EXISTS index_user_name;
+-- CREATE INDEX index_user_name ON developer using BTREE(user_name);
+
+-- EXPLAIN ANALYSE (SELECT * FROM developer WHERE developer.user_name = '_sandeep_');
+
+
+-- DROP INDEX IF EXISTS index_repository_id;
+-- CREATE INDEX index_repository_id ON repository(repository_id);
+
+-- DROP INDEX IF EXISTS sort_time;
+-- CREATE INDEX sort_time ON commit(commit_date_time asc);
+
+-- EXPLAIN ANALYSE (SELECT commit.branch_id FROM commit order by commit_date_time);
+-- EXPLAIN ANALYSE (SELECT repository_id FROM repository WHERE repository.repository_id = 2);
+
+-- '_octopus_' will be present in developer table (super developer)
+--  developer_id 1 is reserved for '_octopus_'
+
+
 -----------------------------------------*      test area start      *-----------------------------------------
 SELECT create_user('_sandeep_', 'sandeep reddy', '112101011@smail.iitpkd.ac.in', '2122');
 SELECT * FROM developer;
@@ -1170,17 +1208,11 @@ SELECT create_file('compiler', 'y', ' // yass code for lab1 ', 7, '_sandeep_');
 SELECT create_file('compiler', 'l', ' ', 8, '_sandeep_');
 SELECT create_file('compiler', 'y', ' ', 8, '_sandeep_');
 SELECT create_file('skip_list', 'c', ' // lex code ', 4, '_sandeep_');
-SELECT * FROM repository;
--- SELECT create_file('portfolio', 'md', ' <br> </br> ', , '_sandeep_');
-
-
-SELECT * FROM repository;
+-- creating file directly under universal repository
+SELECT create_file('portfolio', 'md', ' <br> </br> ', 1, '_sandeep_');
 
 /* making Compilers repository private */
-SELECT make_private(3, '_sandeep_');
-
-SELECT * FROM file;
-select * from access;
+SELECT change_view(3, '_sandeep_', false);
 
 -- /* creating developer _manish_ */
 SELECT create_user('_manish_', 'Manish M H', '112101002@smail.iitpkd.ac.in', '2123');
@@ -1300,18 +1332,6 @@ SELECT * FROM repository;
 
 -- CREATE INDEX index_user_name ON developer(user_name);
 
-
-
-
-
-
-
-
-
-
-
-
-
 ---------------------------------------
 
 -- -- branch_head
@@ -1372,5 +1392,3 @@ SELECT * FROM repository;
 -- BEFORE INSERT ON commit
 -- FOR EACH ROW 
 -- EXECUTE FUNCTION function_branch_creation();
-
----------------------------------------------------------------------------------------------------------------
