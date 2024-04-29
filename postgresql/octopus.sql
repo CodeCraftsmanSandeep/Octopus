@@ -26,8 +26,6 @@ DROP TABLE IF EXISTS access CASCADE;
 DROP TABLE IF EXISTS fork CASCADE;
 DROP TABLE IF EXISTS commit_repository CASCADE;
 DROP TABLE IF EXISTS commit_repository_table CASCADE;
-
-
 DROP TABLE IF EXISTS developer CASCADE;
 DROP TABLE IF EXISTS repository CASCADE;
 
@@ -50,6 +48,25 @@ CREATE TABLE developer(                                                 --
    total_commits INT DEFAULT 0 CHECK(total_commits >= 0)               	--
 );                                                      				--
 --------------------------------------------------------------------------
+
+-- DROP INDEX IF EXISTS index_user_name;
+-- CREATE INDEX index_user_name ON developer using BTREE(user_name);
+
+-- EXPLAIN ANALYSE (SELECT * FROM developer WHERE developer.user_name = '_sandeep_');
+
+
+-- DROP INDEX IF EXISTS index_repository_id;
+-- CREATE INDEX index_repository_id ON repository(repository_id);
+
+-- DROP INDEX IF EXISTS sort_time;
+-- CREATE INDEX sort_time ON commit(commit_date_time asc);
+
+-- EXPLAIN ANALYSE (SELECT commit.branch_id FROM commit order by commit_date_time);
+-- EXPLAIN ANALYSE (SELECT repository_id FROM repository WHERE repository.repository_id = 2);
+
+
+
+
 
 -- '_octopus_' will be present in developer table (super developer)
 --  developer_id 1 is reserved for '_octopus_'
@@ -382,6 +399,7 @@ owner_id INT;
 parent_repo_name VARCHAR;
 child_repository_id INT;
 root_id INT;
+is_public BOOLEAN;
 BEGIN
    /* repository_name should only contain alphabets, numbers, _ */
    IF repository_name ~ '^[a-zA-Z0-9_]+$' THEN
@@ -389,8 +407,7 @@ BEGIN
        RETURN QUERY SELECT false AS is_created, CAST(repository_name || ' contains characters other than alphabets, numbers, _' AS VARCHAR) AS msg;
        RETURN;
    END IF;
-
-
+   
    /* invalid user_name */
    IF(check_user(user_name) = false)
    THEN
@@ -432,11 +449,6 @@ BEGIN
        RETURN;
    END IF;
   
-   /* Updating number of repositires of owner */
-   UPDATE developer
-   SET num_repos = num_repos + 1
-   WHERE developer.user_name = create_repo.user_name;
-  
    /* Getting unique child repositroy_id */
    child_repository_id = (select max(repository.repository_id) from repository ) + 1;
   
@@ -444,32 +456,39 @@ BEGIN
    THEN
        /* root points to itself       */
        root_id = child_repository_id;
+	   is_public := true;
    ELSE
        /* descendent pointing to root */
-       root_id = (SELECT repository.root_id
-                  FROM repository
-                  WHERE repository.repository_id = parent_repository_id);
-	   
+       SELECT repository.root_id, repository.is_public
+	   INTO root_id, is_public
+       FROM repository
+       WHERE repository.repository_id = parent_repository_id;
 	   /* all descendants of a root will have branches which root has */
    END IF;
   
    /* creating a new repository */
-   INSERT INTO repository(repository_id, repository_name, created_date_time, owner_id, creator_id, parent_id, root_id)
+   INSERT INTO repository(repository_id, repository_name, created_date_time, owner_id, creator_id, parent_id, root_id, is_public)
    VALUES ( child_repository_id,
             create_repo.repository_name,
             localtimestamp,
             owner_id,
             dev_id,
             parent_repository_id,
-            root_id);
-  
+            root_id, 
+		    is_public);
+			
    IF (parent_repo_name ~ '^@.+$')
    THEN
 	   /* create  branch 'master' for the root */
 	   INSERT INTO branch(branch_name, repository_id, creator_id)
 	   VALUES ('master', child_repository_id, 1);
    END IF;
-  
+   
+   /* Updating number of repositires of owner */
+   UPDATE developer
+   SET num_repos = num_repos + 1
+   WHERE developer.developer_id = owner_id;
+   
    RETURN QUERY SELECT true AS is_created, CAST(repository_name || ' is created' AS VARCHAR) AS msg;
    RETURN;
 END;
@@ -1025,6 +1044,11 @@ BEGIN
 		SET parent_id = new_repository_id
 		WHERE commit_repository.repository_id = iterator_new_child_id;
 		
+		-- updating parent repository
+		UPDATE repository 
+		SET recent_commit_node = new_repository_id
+		WHERE repository.repository_id = iterator_parent_id;
+		
 		-- changing iterators
 		iterator_child_id 		:= iterator_parent_id;
 		iterator_new_child_id 	:= new_repository_id;
@@ -1036,6 +1060,84 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 ------------------------------------------------------------------------------------------------------------------------
+-- can_view() helper function
+-- 		returns true if a developer can view a repository
+--		returns false otherwise
+-- who can view a repository?
+--		1) any developer can view a repository if the repository is public
+--		2) any worker to a repository can view the repository and its descendents
+--		3) any developer who has view access to the repository can view.
+DROP FUNCTION IF EXISTS can_view;
+CREATE OR REPLACE FUNCTION can_view(user_name VARCHAR, repository_id INT)
+RETURNS BOOLEAN
+AS $$
+DECLARE
+	is_public BOOLEAN;
+	owner_id INT;
+	dev_id INT;
+BEGIN
+	SELECT repository.is_public, repository.owner_id
+	INTO is_public, owner_id
+	FROM repository
+	WHERE repository.repository_id = can_view.repository_id;
+	
+	-- whether repository is public
+	IF (is_public)
+	THEN
+		RETURN true;
+	END IF;
+	
+	dev_id := (SELECT developer.developer_id
+			  FROM developer
+			  WHERE developer.user_name = can_view.user_name);
+    
+	-- whether developer is owner
+	IF (owner_id = dev_id) 
+	THEN
+		RETURN true;
+	END IF;
+	
+	-- whether developer has 'viewer' (or) 'collabarator' access in access table
+	IF EXISTS 
+		(SELECT *
+	    FROM access
+	    WHERE access.developer_id = dev_id and access.repository_id = can_view.repository_id) 
+	THEN
+		RETURN true;
+	END IF;
+	
+	-- no access to view
+	RETURN false;
+END;
+$$ LANGUAGE plpgsql;
+
+-- create_fork() function
+--		source_repository_id is the repository_id of the repository which a developer is intending to fork.
+--		user_name is the user name of the developer who initiated the fork
+--		parent_repository_id is the repository_id of the repository where the forked repo is going to be placed
+DROP FUNCTION IF EXISTS create_fork;
+CREATE OR REPLACE FUNCTION create_fork(source_repository_id INT, user_name VARCHAR, parent_repository_id INT)                            
+RETURNS TABLE(status BOOLEAN, msg VARCHAR)
+AS $$
+DECLARE
+	developer_id INT;
+BEGIN
+   /* checking for validity of user_name */
+   IF (check_user(user_name) = false)
+   THEN
+       RETURN QUERY SELECT false AS status, CAST('Invalid user_name' AS VARCHAR) AS msg;
+       RETURN;
+   END IF;
+   developer_id := (SELECT developer.developer_id FROM developer WHERE developer.user_name = add_commit.user_name);
+   
+   /* checking whether developeris worker */
+   IF is_worker(developer_id, repository_id) = false
+   THEN
+       RETURN QUERY SELECT false AS status, CAST(add_commit.user_name || ' is not worker' AS VARCHAR) AS msg;
+       RETURN;
+   END IF;	
+END;
+$$ LANGUAGE plpgsql;
 
 -----------------------------------------*      test area start      *-----------------------------------------
 SELECT create_user('_sandeep_', 'sandeep reddy', '112101011@smail.iitpkd.ac.in', '2122');
@@ -1068,19 +1170,23 @@ SELECT create_file('compiler', 'y', ' // yass code for lab1 ', 7, '_sandeep_');
 SELECT create_file('compiler', 'l', ' ', 8, '_sandeep_');
 SELECT create_file('compiler', 'y', ' ', 8, '_sandeep_');
 SELECT create_file('skip_list', 'c', ' // lex code ', 4, '_sandeep_');
+SELECT * FROM repository;
+-- SELECT create_file('portfolio', 'md', ' <br> </br> ', , '_sandeep_');
+
 
 SELECT * FROM repository;
 
 /* making Compilers repository private */
 SELECT make_private(3, '_sandeep_');
-SELECT * FROM file;
 
+SELECT * FROM file;
+select * from access;
 
 -- /* creating developer _manish_ */
 SELECT create_user('_manish_', 'Manish M H', '112101002@smail.iitpkd.ac.in', '2123');
 SELECT * FROM developer;
 SELECT * FROM repository;
-
+select * from access;
 
 -- /* granting access to _manish_ */
 -- beauty of octopus is that, you can grant access to any repository (need not be root)
@@ -1090,6 +1196,10 @@ SELECT * FROM access;
 SELECT grant_or_update_access('_sandeep_', 7, '_manish_', 'collaborator');
 
 SELECT grant_or_update_access('_sandeep_', 3, '_manish_', 'collaborator');
+
+-- _manish_ creating repo under References
+select create_repo('IIT_PKD', 9, '_manish_');
+
 
 -- the following gives error message (expected)
 SELECT grant_or_update_access('_sandeep_', 7, '_manish_', 'viewer');
@@ -1113,6 +1223,9 @@ SELECT add_commit(4, 'master', '_manish_', 'commiting oelp');
 
 -- Invalid branch
 SELECT add_commit(4, 'feature', '_sandeep_', 'commiting oelp');
+
+select * from repository;
+select * from commit_repository;
 
 -- valid arguments
 SELECT add_commit(4, 'master', '_sandeep_', 'commiting oelp');
@@ -1185,9 +1298,7 @@ SELECT * FROM repository;
 
 
 
-
-
-
+-- CREATE INDEX index_user_name ON developer(user_name);
 
 
 
@@ -1222,10 +1333,10 @@ SELECT * FROM repository;
 -- );	
 
 ---------------------- view for root of each commit ------------------------------
-CREATE OR REPLACE VIEW commit_root AS
-SELECT commit.commit_id AS commit_id, commit_repository.repository_id AS commit_root_id
-FROM commit JOIN commit_repository using(commit_id)
-WHERE commit_repository.repository_id = commit_repository.root_id;
+-- CREATE OR REPLACE VIEW commit_root AS
+-- SELECT commit.commit_id AS commit_id, commit_repository.repository_id AS commit_root_id
+-- FROM commit JOIN commit_repository using(commit_id)
+-- WHERE commit_repository.repository_id = commit_repository.root_id;
 
 
 -----------------------------------------------------------------------------------------
