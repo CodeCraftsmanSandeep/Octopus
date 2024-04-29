@@ -25,6 +25,8 @@ DROP TABLE IF EXISTS collaborate CASCADE;
 DROP TABLE IF EXISTS access CASCADE;
 DROP TABLE IF EXISTS fork CASCADE;
 DROP TABLE IF EXISTS commit_repository CASCADE;
+DROP TABLE IF EXISTS commit_repository_table CASCADE;
+
 
 DROP TABLE IF EXISTS developer CASCADE;
 DROP TABLE IF EXISTS repository CASCADE;
@@ -50,7 +52,7 @@ CREATE TABLE developer(                                                 --
 --------------------------------------------------------------------------
 
 -- '_octopus_' will be present in developer table (super developer)
--- developer_id 1 is reserved for '_octopus_'
+--  developer_id 1 is reserved for '_octopus_'
 INSERT INTO developer(user_name, name, email, encrypted_password)
 VALUES  ('_octopus_', 'Super developer', 'octopus2024@gmail.com', (crypt('octopus', '$2024$DBMS$fixedsalt')));
 
@@ -63,23 +65,21 @@ CREATE TABLE repository(                                                 --
    is_public BOOLEAN DEFAULT true,                                       --
    root_id INT,                        /* root of the tree   */          --
    parent_id INT,                      /* parent of the repo */          --
-   creator_id INT NOT NULL,            /* worker who created */          --
+   creator_id INT,                     /* worker who created */          --
    recent_commit_node INT DEFAULT NULL, 
                                                                          --
    FOREIGN KEY (owner_id)                                                --
    REFERENCES developer(developer_id) ON DELETE CASCADE,                 --
    FOREIGN KEY (creator_id)                                              --
-   REFERENCES developer(developer_id) ,                 				 --
+   REFERENCES developer(developer_id) ON DELETE SET NULL,                 				 
    FOREIGN KEY (root_id)                                                 --
-   REFERENCES repository(repository_id),                                 --
+   REFERENCES repository(repository_id) ON DELETE NO ACTION,             --
    FOREIGN KEY (parent_id)                                               --
    REFERENCES repository(repository_id) ON DELETE CASCADE                --
---    FOREIGN KEY (recent_commit_node)
---    REFERENCES commit_repository(repository_id) ?????????????????????????????????
 );                                                                       --
 ---------------------------------------------------------------------------
 
--- owner of the file is the owner of its parent repository
+-- owner of a file is the owner of its parent repository
 -- creater of the file is any worker (may not be active worker)
 -- file table
 -- file is a leaf in the TREE
@@ -92,12 +92,12 @@ CREATE TABLE file(
    parent_repository_id INT NOT NULL,
    created_date_time timestamp,
    last_update timestamp,
-   creator_id INT NOT NULL,
+   creator_id INT,
   
    FOREIGN KEY(parent_repository_id)
    REFERENCES repository(repository_id) ON DELETE CASCADE,
    FOREIGN KEY(creator_id)
-   REFERENCES developer(developer_id)
+   REFERENCES developer(developer_id) ON DELETE SET NULL
 );
 
 -- comment table
@@ -122,7 +122,7 @@ CREATE TYPE access_flag AS ENUM ('collaborator', 'viewer');					--
 CREATE TABLE access(														--
    repository_id INT,														--
    developer_id INT,														-- |||||||||||||||||||||||||||||||			
-   access_type access_flag,													-- |||||     ACCESS TABLE    |||||
+   access_type access_flag NOT NULL,										-- |||||     ACCESS TABLE    |||||
   																			-- |||||||||||||||||||||||||||||||
    PRIMARY KEY(repository_id, developer_id),								--
    FOREIGN KEY (repository_id)												--
@@ -222,7 +222,12 @@ CREATE TABLE commit_file(
    REFERENCES developer(developer_id) ON DELETE SET NULL
 );
 
-ALTER TABLE repository ADD CONSTRAINT fk_constraint FOREIGN KEY(recent_commit_node) REFERENCES commit_repository(repository_id);
+-- adding foreign key constraint (added seperately because of cyclic forign key references)
+ALTER TABLE repository 
+ADD CONSTRAINT fk_constraint 
+FOREIGN KEY(recent_commit_node) 
+REFERENCES commit_repository(repository_id)
+ON DELETE SET NULL;
 
 -- tag table
 CREATE TABLE tag(
