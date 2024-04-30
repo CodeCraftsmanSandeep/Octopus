@@ -1158,17 +1158,15 @@ END;
 $$ LANGUAGE plpgsql;
 
 --------------------------------- indices ---------------------------------  
--- DROP INDEX IF EXISTS index_user_name;
--- CREATE INDEX index_user_name ON developer using BTREE(user_name);
+DROP INDEX IF EXISTS index_user_name;
+CREATE INDEX index_user_name ON developer using HASH(user_name);
 
--- EXPLAIN ANALYSE (SELECT * FROM developer WHERE developer.user_name = '_sandeep_');
+DROP INDEX IF EXISTS index_repository_id;
+CREATE INDEX index_repository_id ON repository(repository_id);
 
+DROP INDEX IF EXISTS sort_time;
+CREATE INDEX sort_time ON commit(commit_date_time asc);
 
--- DROP INDEX IF EXISTS index_repository_id;
--- CREATE INDEX index_repository_id ON repository(repository_id);
-
--- DROP INDEX IF EXISTS sort_time;
--- CREATE INDEX sort_time ON commit(commit_date_time asc);
 
 -- EXPLAIN ANALYSE (SELECT commit.branch_id FROM commit order by commit_date_time);
 -- EXPLAIN ANALYSE (SELECT repository_id FROM repository WHERE repository.repository_id = 2);
@@ -1191,7 +1189,7 @@ select create_repo('Lab1', 2, '_sandeep_');
 select create_repo('Lab2', 2, '_sandeep_');
 select create_repo('Lab1', 3, '_sandeep_');
 select create_repo('Lab2', 3, '_sandeep_');
-select create_repo('References', 7, '_sandeep_');
+-- select create_repo('References', 7, '_sandeep_');
 
 -- creating files
 SELECT create_file('readme', 'md', 'Name: Chekkala Sandeep Reddy <br/> Roll Number: 112101011 <br/> ', 2, '_sandeep_');
@@ -1218,6 +1216,7 @@ SELECT change_view(3, '_sandeep_', false);
 SELECT create_user('_manish_', 'Manish M H', '112101002@smail.iitpkd.ac.in', '2123');
 SELECT * FROM developer;
 SELECT * FROM repository;
+SELECT * FROM file;
 select * from access;
 
 -- /* granting access to _manish_ */
@@ -1225,16 +1224,9 @@ select * from access;
 -- github doesn't allow it !!
 SELECT * FROM access; 
 
-SELECT grant_or_update_access('_sandeep_', 7, '_manish_', 'collaborator');
-
-SELECT grant_or_update_access('_sandeep_', 3, '_manish_', 'collaborator');
-
 -- _manish_ creating repo under References
 select create_repo('IIT_PKD', 9, '_manish_');
 
-
--- the following gives error message (expected)
-SELECT grant_or_update_access('_sandeep_', 7, '_manish_', 'viewer');
 
 
 SELECT * FROM access;
@@ -1242,6 +1234,9 @@ SELECT * FROM access;
 -- creating a branch
 -- CREATE OR REPLACE FUNCTION create_branch(branch_name VARCHAR, repository_id INT, developer_user_name VARCHAR)
 SELECT create_branch('feature', 7, '_sandeep_');
+SELECT create_branch('feature', 6, '_sandeep_');
+SELECT create_branch('feature', 1, '_sandeep_');
+
 SELECT * FROM branch;
 
 -- commiting
@@ -1270,14 +1265,55 @@ SELECT add_commit(3, 'master', '_sandeep_', 'commiting all');
 
 SELECT * FROM repository;
 
-SELECT * FROM commit_repository;
-SELECT * FROM commit;
-SELECT * FROM commit_file;
-SELECT * FROM repository;
+select * from branch;
+
+-- NAME all the branches created by developer _sandeep_
+SELECT branch.*
+FROM branch, developer
+WHERE branch.creator_id = developer.developer_id and
+	   developer.user_name = '_sandeep_';
+
+-- Finding all files of developer '_sandeep_'
+SELECT file.*
+FROM file, repository, developer
+WHERE developer.user_name = '_sandeep_' AND
+	file.parent_repository_id = repository.repository_id AND
+	repository.owner_id = developer.developer_id;
+
+-- find all repositires which can be viewed by _manish_
+SELECT repository.*
+FROM repository, developer
+WHERE developer.user_name = '_manish_' AND
+	can_view('_manish_', repository.repository_id)
+;
+
+-- granting collabration access of Lab1 of Compilers to _manish_
+SELECT grant_or_update_access('_sandeep_', 3, '_manish_', 'collaborator');
+
+SELECT repository.*
+FROM repository, developer
+WHERE developer.user_name = '_manish_' AND
+	can_view('_manish_', repository.repository_id)
+;
+
+
+select * from access;
+
+
+
+
+
+
+-- the following gives error message (expected)
+SELECT grant_or_update_access('_sandeep_', 7, '_manish_', 'viewer');
+
 
 -- adding comments
 
+
+
 -- adding tags
+
 
 
 -----------------------------------------*       test area end       *---------------------------------------------------------
