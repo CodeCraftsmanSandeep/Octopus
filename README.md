@@ -6,7 +6,6 @@ This repository serves as the central hub for our ongoing efforts to design and 
 
 # Overview
 
-[ER_model](ER_model) <br/>
 [Relational_model](Relational_model) <br/>
 [postgresSQL](postgresSQL) <br/>
 
