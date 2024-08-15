@@ -1,6 +1,6 @@
 # Octopus - A database design.
 
-![swimming](https://github.com/user-attachments/assets/0aabcf4b-8cb2-4ebf-ab06-74cee998915d)
+![octopus_swimming](media/octopus_swimming.gif)
 
 Welcome to Octopus(🐙) Cloud Repository! <br/>
 <!-- <img src = 'happy-octopus.png' > <br/> -->
