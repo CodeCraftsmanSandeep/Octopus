@@ -1,6 +1,6 @@
 # Octopus - A database design.
 
-https://github.com/CodeCraftsmanSandeep/Octopus/issues/1#issue-2467680976  
+![swimming](https://github.com/user-attachments/assets/0aabcf4b-8cb2-4ebf-ab06-74cee998915d)
 
 Welcome to Octopus(🐙) Cloud Repository! <br/>
 <!-- <img src = 'happy-octopus.png' > <br/> -->
