@@ -9,7 +9,7 @@ This repository serves as the central hub for our ongoing efforts to design and 
 # Overview
 
 [Relational_model](Relational_model) <br/>
-[postgresSQL](postgresSQL) <br/>
+[postgreSQL](postgreSQL) <br/>
 
 ER model and relational database model are one of those which can abstract and logically represent a real-world enterprise. <br/>
 
