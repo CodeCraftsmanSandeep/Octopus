@@ -1,5 +1,7 @@
 # Octopus - A database design.
-https://github.com/CodeCraftsmanSandeep/Octopus/issues/1#issue-2467680976
+
+https://github.com/CodeCraftsmanSandeep/Octopus/issues/1#issue-2467680976  
+
 Welcome to Octopus(🐙) Cloud Repository! <br/>
 <!-- <img src = 'happy-octopus.png' > <br/> -->
 This repository serves as the central hub for our ongoing efforts to design and develop a cloud-based application platform here after called as 🐙, inspired by the collaborative features of GitHub. <br/>
