@@ -1,8 +1,13 @@
-# Octopus - A database design.
+# Octopus
 
-![octopus_swimming](media/octopus_swimming.gif)
+Welcome to Octopus(🐙) world! <br/>
 
-Welcome to Octopus(🐙) Cloud Repository! <br/>
+<p align="center">
+  <img src="media/octopus_swimming.gif" />
+</p>
+
+<!-- ![octopus_swimming](media/octopus_swimming.gif) -->
+
 
 This repository serves as the central hub for our ongoing efforts to design and develop a cloud-based application platform here after called as 🐙, inspired by the collaborative features of GitHub. <br/>
 
