@@ -111,20 +111,20 @@ CREATE TABLE comment(                                                   --
 --------------------------------------------------------------------------
 
 ---------------------------access table-----------------------------------
-/* creating datatype for different access */							--
-CREATE TYPE access_flag AS ENUM ('collaborator', 'viewer');				--
+/* creating datatype for different access */                            --
+CREATE TYPE access_flag AS ENUM ('collaborator', 'viewer');             --
                                                                         --
-CREATE TABLE access(													--
-    repository_id INT,													--
-    developer_id INT,													--
-    access_type access_flag NOT NULL,									-- 
+CREATE TABLE access(                                                    --
+    repository_id INT,                                                  --
+    developer_id INT,                                                   --
+    access_type access_flag NOT NULL,                                   -- 
                                                                         --
-    PRIMARY KEY(repository_id, developer_id),							--
-    FOREIGN KEY (repository_id)											--
-    REFERENCES repository(repository_id) ON DELETE CASCADE,				--
-    FOREIGN KEY (developer_id)											--
-    REFERENCES developer(developer_id) ON DELETE CASCADE				--
-);																	 	--
+    PRIMARY KEY(repository_id, developer_id),                           --
+    FOREIGN KEY (repository_id)                                         --
+    REFERENCES repository(repository_id) ON DELETE CASCADE,             --
+    FOREIGN KEY (developer_id)                                          --
+    REFERENCES developer(developer_id) ON DELETE CASCADE                --
+);                                                                      --
 --------------------------------------------------------------------------
 
 -- commit area includes the following tables:															 
