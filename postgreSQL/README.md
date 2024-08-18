@@ -6,4 +6,3 @@
 | [testing-octopus.sql](testing-octopus.sql) | contains SQL code to test the design |
 
 
-
