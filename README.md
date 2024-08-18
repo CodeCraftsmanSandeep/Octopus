@@ -6,7 +6,7 @@ Welcome to Octopus(🐙) world! <br/>
   <img src="media/octopus_swimming.gif" />
 </p>
 
-This repository serves as the central hub for our ongoing efforts to design and develop a cloud-based application platform here after called as 🐙, inspired by the collaborative features of GitHub. <br/>
+This repository serves as the central hub for efforts made to design and develop a cloud-based application platform here after called as 🐙, inspired by the collaborative features of GitHub. <br/>
 
 # Table of contents
 | Title | Notes |
