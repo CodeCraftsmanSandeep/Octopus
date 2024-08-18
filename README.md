@@ -27,15 +27,13 @@ Below picture signifies the privilegaes of three type of users for the current v
 
 # Disclaimer
 
-```python
 This project has significant potential for adding new features, but it’s important to recognize that it’s not something I can achieve alone (especially when you consider how advanced and stable platforms like GitHub and GitLab are). The primary goal of this project isn't to compete with existing version control repositories but to learn:
 
-- How to think and write sophisticated algorithms
-- How to manage large codebases
-- How to document effectively
+- How to think 💭 and write 📝 sophisticated algorithms 
+- How to manage large codebases 
+- How to document effectively 
 
 The learning experience from this project has been invaluable. If I ever need to build a new application, the insights gained here will be incredibly useful—similar to how a Computer Science student benefits from a compiler course. Even though there are highly optimized compilers that have been developed over decades, students still create their own prototypes to gain a deeper understanding, which they can apply in other areas.
-```
 
 ## References 
 
