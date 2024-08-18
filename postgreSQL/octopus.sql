@@ -176,11 +176,11 @@ CREATE TABLE commit_repository(                                         --
     FOREIGN KEY (owner_id)                                              --
     REFERENCES developer(developer_id) ON DELETE CASCADE,               --
     FOREIGN KEY (creator_id)                                            --
-    REFERENCES developer(developer_id) ON DELETE SET NULL,			    --
+    REFERENCES developer(developer_id) ON DELETE SET NULL,              --
     FOREIGN KEY (parent_id)                                             --
     REFERENCES commit_repository(repository_id) ON DELETE CASCADE,      --                  
-    FOREIGN KEY (commit_id)											    --
-    REFERENCES commit(commit_id) ON DELETE CASCADE					    --
+    FOREIGN KEY (commit_id)                                             --
+    REFERENCES commit(commit_id) ON DELETE CASCADE                      --
 );                                                                      --
 --------------------------------------------------------------------------
 
