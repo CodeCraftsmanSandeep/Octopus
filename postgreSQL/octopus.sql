@@ -158,8 +158,8 @@ CREATE TABLE commit(                                                    --
     FOREIGN KEY (developer_id)                                          --
     REFERENCES developer(developer_id) ON DELETE SET NULL,              --
     FOREIGN KEY (branch_id)                                             --
-    REFERENCES branch (branch_id) ON DELETE CASCADE						--								
-);		                                                                --
+    REFERENCES branch (branch_id) ON DELETE CASCADE                     --								
+);                                                                      --
 --------------------------------------------------------------------------
 
 -------------------------commit_repository table--------------------------
